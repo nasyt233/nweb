@@ -13,10 +13,11 @@ chmod +x nweb
 
 2. 运行nweb
 
-nweb [目录] [端口]'
+nweb [目录] [端口]
 
+ **举例** 
+使用当前目录运行
 ```bash
 ./nweb . 8080
 ```
 
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
