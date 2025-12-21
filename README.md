@@ -22,7 +22,7 @@ chmod +x nweb
 
 2. 运行nweb
 
-- nweb [目录] [端口]
+- `nweb [目录] [端口]`
 
  **举例** 
 
