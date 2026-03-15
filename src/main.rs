@@ -20,9 +20,10 @@ async fn main() {
     let args = match parse_args() {
         Ok(args) => args,
         Err(e) => {
-            eprintln!("❌ 参数解析错误: {}", e);
-            eprintln!("💡 使用方法: nweb <目录> <端口>");
+            eprintln!("❌ 参数错了，雜鱼: {}", e);
+            eprintln!("💡 食用方法: nweb <目录> <端口>");
             eprintln!("💡 示例: nweb ~/Documents 8080");
+            eprintln!("💡 如果想使用当前目录，请换成nweb . <端口>");
             std::process::exit(1);
         }
     };
@@ -33,8 +34,17 @@ async fn main() {
     let external_dir = PathBuf::from(&expanded_dir);
     let port = args.port;
     
-    println!("🤓 本项目由rust开发，NAS油条制作");
-    println!("🌍 请将index.html网页放在，选择的目录底下");
+    print!("\x1B[2J\x1B[1;1H"); // 清屏
+    println!("███╗  ██╗██╗  ██╗██╗    ██╗███████╗██████╗");
+    println!("████╗ ██║╚██╗██╔╝██║    ██║██╔════╝██╔══██╗");
+    println!("██╔██╗██║ ╚███╔╝ ██║ █╗ ██║█████╗  ██████╔╝");
+    println!("██║╚████║ ██╔██╗ ██║███╗██║██╔══╝  ██╔══██╗");
+    println!("██║ ╚███║██╔╝ ██╗╚███╔███╔╝███████╗██║  ██║");
+    println!("╚═╝  ╚══╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝");
+    println!("_________________________________");
+    println!("🤓 本项目由rust制作，NAS油条 开发");
+    println!("🌍 请将index.html网页放在你选择的目录底下");
+    println!("_________________________________");
     println!("📁 服务目录: {}", external_dir.display());
     println!("🌐 服务器地址: http://127.0.0.1:{}", port);
     println!("🔗 访问示例: http://127.0.0.1:{}/index.html", port);
@@ -74,9 +84,9 @@ async fn main() {
     // 组合路由
     let routes = index.or(static_files);
     
-    println!("🚀 服务器启动中...");
+    println!("🚀 启动中，雜鱼...");
     println!("🛑 按 Ctrl+C 停止服务器");
-    
+    println!("_________________________________");
     warp::serve(routes)
         .run(([0, 0, 0, 0], port))
         .await;

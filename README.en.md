@@ -1,36 +1,33 @@
-# nlist下载站
+Welcome to join the NAS Youtiao Technology Exchange Group
 
-#### Description
-一个用rust开发的下载网站
+What technologies can be exchanged here
 
-#### Software Architecture
-Software architecture description
+Group number: '610699712'
 
-#### Installation
+#### about the Rust Web server nweb
+The core features of the Rust Web server
+Zero-cost abstraction
+- Memory safety guarantee
+- Concurrency without data contention
+- Ultimate performance
+- Rich ecosystem
+! [Demonstration](1000273906.jpg)
+Usage method
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+1. Set execution permissions
 
-#### Instructions
+```bash
+chmod +x nweb
+```
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+2. Run nweb
 
-#### Contribution
+- 'nweb [Directory] [port]
 
-1.  Fork the repository
-2.  Create Feat_xxx branch
-3.  Commit your code
-4.  Create Pull Request
+** Example **
 
+Run using the current directory
 
-#### Gitee Feature
-
-1.  You can use Readme\_XXX.md to support different languages, such as Readme\_en.md, Readme\_zh.md
-2.  Gitee blog [blog.gitee.com](https://blog.gitee.com)
-3.  Explore open source project [https://gitee.com/explore](https://gitee.com/explore)
-4.  The most valuable open source project [GVP](https://gitee.com/gvp)
-5.  The manual of Gitee [https://gitee.com/help](https://gitee.com/help)
-6.  The most popular members  [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+```bash
+./nweb . 8080
+```
