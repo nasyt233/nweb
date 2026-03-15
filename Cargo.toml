@@ -1,7 +1,15 @@
 [package]
 name = "nweb"
-version = "0.1.1"
+authors = ["nasyt", "NAS油条",]
+version = "0.1.0"
 edition = "2021"
+description = "A lightweight and high-performance static Web service built with Rust language nweb"
+readme = "README.md"
+homepage = "https://nasyt.hoha.top"
+repository = "https://github.com/nasyt233/nweb"
+license = "MIT OR Apache-2.0"
+keywords = ["nweb", "nasyt", "web",]
+
 
 [dependencies]
 warp = "0.3"
