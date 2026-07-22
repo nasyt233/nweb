@@ -16,9 +16,15 @@
 
 ## 快速开始
 
-### 1. 下载可执行文件
+### 1. 安装
 从 [Releases](https://github.com/nasyt233/nweb/releases) 下载对应平台的 `nweb` 二进制文件，或自行编译：
 
+通用一键安装脚本
+```bash
+bash -c "$(curl -L https://raw.gitcode.com/nasyt/nweb/raw/master/install.sh)"
+```
+
+从源码开始构建
 ```bash
 git clone https://github.com/nasyt233/nweb.git
 cd nweb

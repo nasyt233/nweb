@@ -18,9 +18,15 @@ A minimalist file browser written in Rust - no configuration required, ready to 
 
 Get started quickly
 
-1. Download the executable file
+1. fix
 From [Releases] (https://github.com/nasyt233/nweb/releases) to download the corresponding platform ` nweb ` binary file, or to compile:
 
+Universal One-Click Installation Script
+```bash
+bash -c "$(curl -L https://raw.gitcode.com/nasyt/nweb/raw/master/install.sh)"
+```
+
+Build from the source code
 ```bash
 git clone https://github.com/nasyt233/nweb.git
 cd nweb
