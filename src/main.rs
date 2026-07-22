@@ -44,8 +44,10 @@ struct FileNode {
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 3 {
-        eprintln!("❌ 使用方法: nweb <目录> <端口>");
-        eprintln!("💡 示例: nweb ~/Documents 8080");
+        eprintln!("❌ 参数错了，雜鱼", );
+        eprintln!("💡 食用方法: nweb <目录> <端口>");
+        eprintln!("💡 示例: nweb ~/文档 7891");
+        eprintln!("💡 如果想使用当前目录，请换成nweb . <端口>");
         std::process::exit(1);
     }
 
@@ -53,12 +55,12 @@ async fn main() {
     let expanded_dir = expand_path(&dir_str);
     let root_dir = PathBuf::from(&expanded_dir);
     let port = args[2].parse::<u16>().unwrap_or_else(|e| {
-        eprintln!("❌ 端口错误: {}", e);
+        eprintln!("❌ 雜鱼，端口错误: {}", e);
         std::process::exit(1);
     });
 
     if !root_dir.exists() || !root_dir.is_dir() {
-        eprintln!("❌ 目录不存在或不是目录: {}", root_dir.display());
+        eprintln!("❌ 雜鱼，目录不存在或不是目录: {}", root_dir.display());
         std::process::exit(1);
     }
 
@@ -73,11 +75,22 @@ async fn main() {
 
     ensure_config(&root_dir);
     let config = load_config(&root_dir).unwrap_or_else(Config::default);
-
+    
+    print!("\x1B[2J\x1B[1;1H"); // 清屏
+    println!("██    ██  ██     ██ ███████  ██████ ");
+    println!("███   ██  ██     ██ ██       ██   ██ ");
+    println!("██ ██ ██  ██  █  ██ ███████  ██████  ");
+    println!("██   ███  ██ ███ ██ ██       ██   ██ ");
+    println!("██    ██   ███ ███  ███████  ██████  ");
+    println!("_________________________________");
+    println!("🤓 本项目由Rust语言开发，NAS油条 制作");
+    println!("🐧 问题反馈QQ群: 610699712 ");
+    println!("🌍 请将index.html网页放在你选择的目录底下");
+    println!("_________________________________");
     println!("📁 服务目录: {}", root_dir.display());
     println!("📄 日志文件: {}", log_path.display());
     println!("🌐 服务器地址: http://127.0.0.1:{}", port);
-    println!("🚀 服务器启动中...");
+    println!("🚀 雜鱼服务器启动中...");
     println!("🛑 按 Ctrl+C 停止服务器");
 
     let routes = warp::any()
@@ -133,7 +146,6 @@ async fn handle_request(
     }
 
     // ===== API 路由：支持 /api/tree/ 和 /api/ =====
-    // 1. 旧格式 /api/tree/...
     if tail.starts_with("api/tree/") {
         let raw_path = &tail[9..];
         let decoded = decode(raw_path).unwrap_or_else(|_| raw_path.into());
@@ -185,15 +197,40 @@ async fn handle_request(
         }
     }
 
-    // 根路径 → 单页 HTML
+    // 根路径 → 优先检查 index.html
     if tail.is_empty() {
-        let html = generate_index_html(config);
-        log_request(root, "/", 200).await;
-        return Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header("Content-Type", "text/html; charset=utf-8")
-            .body(html.into_bytes())
-            .unwrap());
+        let index_path = root.join("index.html");
+        if index_path.exists() && index_path.is_file() {
+            match tokio_fs::read_to_string(&index_path).await {
+                Ok(content) => {
+                    log_request(root, "/", 200).await;
+                    return Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Content-Type", "text/html; charset=utf-8")
+                        .body(content.into_bytes())
+                        .unwrap());
+                }
+                Err(_) => {
+                    // 读取失败则回退到默认页面
+                    log_request(root, "/", 500).await;
+                    let html = generate_index_html(config);
+                    return Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Content-Type", "text/html; charset=utf-8")
+                        .body(html.into_bytes())
+                        .unwrap());
+                }
+            }
+        } else {
+            // 没有 index.html，显示默认页面
+            let html = generate_index_html(config);
+            log_request(root, "/", 200).await;
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/html; charset=utf-8")
+                .body(html.into_bytes())
+                .unwrap());
+        }
     }
 
     // ===== 文件下载 =====
@@ -204,7 +241,7 @@ async fn handle_request(
         log_request(root, &decoded_tail, 403).await;
         return Ok(Response::builder()
             .status(StatusCode::FORBIDDEN)
-            .body("禁止访问".as_bytes().to_vec())
+            .body("雜鱼，禁止访问".as_bytes().to_vec())
             .unwrap());
     }
 
@@ -224,7 +261,7 @@ async fn handle_request(
                 log_request(root, &decoded_tail, 500).await;
                 return Ok(Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body("文件读取失败".as_bytes().to_vec())
+                    .body("雜鱼，文件读取失败".as_bytes().to_vec())
                     .unwrap());
             }
         }
@@ -249,7 +286,7 @@ fn get_directory_tree(root: &PathBuf, path: &str) -> Result<Vec<FileNode>, Strin
         return Err("Access denied".to_string());
     }
     if !current_path.exists() || !current_path.is_dir() {
-        return Err(format!("目录不存在: {}", current_path.display()));
+        return Err(format!("雜鱼，目录不存在: {}", current_path.display()));
     }
 
     let mut nodes = Vec::new();
@@ -300,7 +337,7 @@ fn ensure_config(root: &PathBuf) {
         let default_config = Config::default();
         let yaml = serde_yaml::to_string(&default_config).unwrap();
         match fs::write(&config_path, yaml) {
-            Ok(_) => println!("✅ 已生成默认配置文件: {}", config_path.display()),
+            Ok(_) => println!("✅ 默认配置文件: {}", config_path.display()),
             Err(e) => eprintln!("⚠️  无法写入配置文件: {}", e),
         }
     }
@@ -408,7 +445,7 @@ fn generate_index_html(config: &Config) -> String {
             <div id="treeRoot" class="tree-root"></div>
         </div>
         <div class="footer">
-            <p>⚡ 由 <span>Rust</span> 驱动 · 快速文件浏览</p>
+            <p>⚡ 由 <span>Rust</span> 强力驱动 · 快速文件浏览</p>
         </div>
     </div>
 
@@ -524,7 +561,7 @@ fn generate_index_html(config: &Config) -> String {
                     const emptyLi = document.createElement('li');
                     emptyLi.style.color = '#999';
                     emptyLi.style.padding = '10px';
-                    emptyLi.textContent = '📭 此目录为空';
+                    emptyLi.textContent = '雜鱼 这目录是空的';
                     ul.appendChild(emptyLi);
                 }}
 
@@ -564,7 +601,7 @@ fn generate_index_html(config: &Config) -> String {
                 'mp3': '🎵', 'wav': '🎵', 'flac': '🎵',
                 'zip': '📦', 'rar': '📦', '7z': '📦', 'tar': '📦', 'gz': '📦',
                 'exe': '📦', 'msi': '📦', 'dmg': '📦', 'apk': '📦',
-                'sh': '🐚', 'bash': '🐚', 'zsh': '🐚',
+                'sh': '📃', 'bash': '📃', 'zsh': '📃', 'rb': '📃', 'fish': '📃',
                 'dockerfile': '🐳',
                 'gitignore': '📌', 'gitattributes': '📌',
                 'lock': '🔒',
