@@ -1,7 +1,7 @@
 # nweb
 
 [简体中文](README.md)
-[English](README_en.md)
+[English](README.en.md)
 
 一个用 Rust 编写的极简文件浏览器 —— 无需配置，开箱即用。
 

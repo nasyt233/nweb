@@ -1,7 +1,7 @@
 # nweb
 
 [简体中文](README.md)
-[English](README_en.md)
+[English](README.en.md)
 
 A minimalist file browser written in Rust - no configuration required, ready to use out of the box.
 
