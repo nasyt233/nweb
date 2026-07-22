@@ -1,34 +1,91 @@
-欢迎加入NAS油条技术交流群
+# nweb
+<p>
+  <a href="README.md">简体中文</a> ·
+  <a href="README_EN.md">English</a>
+</p>
+一个用 Rust 编写的极简文件浏览器 —— 无需配置，开箱即用。
 
-有什么技术可以进来交流
+## 特点
 
-群号:`610699712`
+- 📁 单页浏览：点击文件夹即可展开，无需跳转页面。
+- 🎨 可自定义外观：通过 `nweb.yml` 修改标题、介绍、背景图、透明度与模糊度。
+- 📋 日志记录：每次请求（路径 + 状态码）自动记录到 `nweb.log`，方便排查问题。
+- 🔒 隐藏敏感文件：`nweb.yml`、`nweb.log`、`README*` 在列表不可见，直接访问返回 404。
+- 💾 文件下载：点击任意文件即可下载，所有 MIME 类型均支持。
+- ⚡ 快速响应：仅扫描当前目录，深层文件夹按需加载，性能优异。
 
-#### 关于Rust Web服务器nweb
-Rust Web服务器的核心特点：
-- 零成本抽象
-- 内存安全保证
-- 无数据竞争的并发
-- 极致的性能表现
-- 丰富的生态系统
-![演示](1000273906.jpg)
-### 使用方法
+## 快速开始
 
-1. 设置执行权限
+### 1. 下载可执行文件
+从 [Releases](https://github.com/nasyt233/nweb/releases) 下载对应平台的 `nweb` 二进制文件，或自行编译：
 
 ```bash
-chmod +x nweb
+git clone https://github.com/nasyt233/nweb.git
+cd nweb
+cargo build --release
 ```
 
-2. 运行nweb
+### 2. 运行
 
-- `nweb [目录] [端口]`
+```bash
+./nweb <目录> <端口>
+```
 
- **举例** 
-
-使用当前目录运行
+示例（将当前目录作为根目录，端口 8080）：
 
 ```bash
 ./nweb . 8080
 ```
 
+启动后，打开浏览器访问 http://127.0.0.1:8080 即可浏览文件。
+
+### 3. 自定义配置（可选）
+
+在服务根目录下创建 nweb.yml 文件（首次启动会自动生成），内容如下：
+
+```yaml
+title: "我的文件站"                # 网页标题
+description: "文件浏览器"           # 网页介绍
+background_api: "https://example.com/bg.jpg"  # 背景图URL
+opacity: 0.3                      # 背景透明度（0~1）
+blur: "5px"                       # 毛玻璃模糊程度
+```
+
+修改后重启服务即可生效。
+
+## 高级用法
+
+获取目录树 JSON
+
+外部程序可通过 /api/路径 获取任意目录的 JSON 结构，例如：
+
+```bash
+curl http://127.0.0.1:8080/api/src
+```
+
+返回：
+
+```json
+[
+  {"name": "main.rs", "is_dir": false, "size": 1024, "path": "src/main.rs"},
+  {"name": "lib", "is_dir": true, "size": 0, "path": "src/lib"}
+]
+```
+
+## 日志
+
+所有请求（含 API 和文件下载）会记录到 nweb.log，同时输出到终端，格式如下：
+
+```
+[2025-01-01 12:00:00] / 200
+[2025-01-01 12:00:01] /api/src 200
+[2025-01-01 12:00:02] /README.md 404
+```
+
+## 许可证
+
+MIT License
+
+##交流群
+
+欢迎加入 NAS油条技术交流群 610699712
