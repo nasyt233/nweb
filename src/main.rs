@@ -92,7 +92,8 @@ async fn main() {
     println!("🌐 服务器地址: http://127.0.0.1:{}", port);
     println!("🚀 雜鱼服务器启动中...");
     println!("🛑 按 Ctrl+C 停止服务器");
-
+    println!("_________________________________");
+    
     let routes = warp::any()
         .and(warp::path::tail())
         .and(warp::path::full())
@@ -105,7 +106,7 @@ async fn main() {
         });
 
     warp::serve(routes)
-        .run(([127, 0, 0, 1], port))
+        .run(([0, 0, 0, 0], port))
         .await;
 }
 

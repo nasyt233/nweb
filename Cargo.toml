@@ -1,7 +1,7 @@
 [package]
 name = "nweb"
 authors = ["nasyt", "NAS油条",]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "A lightweight and high-performance static Web service built with Rust language nweb"
 readme = "README.md"
