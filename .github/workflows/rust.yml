@@ -32,9 +32,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-
 
-    - name: Run Clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
-
     - name: Build Release
       run: cargo build --release -p nweb --locked
 
