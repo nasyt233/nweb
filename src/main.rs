@@ -9,7 +9,7 @@ use chrono::Local;
 use tokio::fs as tokio_fs;
 use tokio::io::AsyncWriteExt;
 
-// ==================== 配置 ====================
+// ==================== 配置（增加 show_hidden） ====================
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub title: String,
@@ -17,6 +17,12 @@ pub struct Config {
     pub background_api: String,
     pub opacity: f32,
     pub blur: String,
+    #[serde(default = "default_show_hidden")]
+    pub show_hidden: bool,
+}
+
+fn default_show_hidden() -> bool {
+    false
 }
 
 impl Default for Config {
@@ -27,6 +33,7 @@ impl Default for Config {
             background_api: "https://www.loliapi.com/acg/".to_string(),
             opacity: 0.3,
             blur: "5px".to_string(),
+            show_hidden: false,
         }
     }
 }
@@ -152,7 +159,7 @@ async fn handle_request(
         let decoded = decode(raw_path).unwrap_or_else(|_| raw_path.into());
         let path = decoded.trim_start_matches('/').trim_end_matches('/');
 
-        match get_directory_tree(root, path) {
+        match get_directory_tree(root, path, config) {
             Ok(tree) => {
                 let json = serde_json::to_string(&tree).unwrap_or("[]".to_string());
                 log_request(root, &format!("/api/tree/{}", path), 200).await;
@@ -178,7 +185,7 @@ async fn handle_request(
         let decoded = decode(raw_path).unwrap_or_else(|_| raw_path.into());
         let path = decoded.trim_start_matches('/').trim_end_matches('/');
 
-        match get_directory_tree(root, path) {
+        match get_directory_tree(root, path, config) {
             Ok(tree) => {
                 let json = serde_json::to_string(&tree).unwrap_or("[]".to_string());
                 log_request(root, &format!("/api/{}", path), 200).await;
@@ -275,8 +282,8 @@ async fn handle_request(
         .unwrap())
 }
 
-// ==================== 目录树生成 ====================
-fn get_directory_tree(root: &PathBuf, path: &str) -> Result<Vec<FileNode>, String> {
+// ==================== 目录树生成（增加 config 参数，控制是否显示隐藏文件） ====================
+fn get_directory_tree(root: &PathBuf, path: &str, config: &Config) -> Result<Vec<FileNode>, String> {
     let current_path = if path.is_empty() {
         root.clone()
     } else {
@@ -298,8 +305,12 @@ fn get_directory_tree(root: &PathBuf, path: &str) -> Result<Vec<FileNode>, Strin
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
-        // 隐藏文件
-        if name.starts_with('.') || name == "nweb.yml" || name == "nweb.log" {
+        // 隐藏文件的判断：如果配置为不显示隐藏文件，则跳过以 '.' 开头的文件
+        // 但 nweb.yml 和 nweb.log 始终隐藏
+        if name == "nweb.yml" || name == "nweb.log" {
+            continue;
+        }
+        if !config.show_hidden && name.starts_with('.') {
             continue;
         }
 
@@ -357,7 +368,7 @@ fn load_config(root: &PathBuf) -> Option<Config> {
     None
 }
 
-// ==================== 生成 HTML（单页应用） ====================
+// ==================== 生成 HTML（单页应用，增加返回顶部按钮） ====================
 fn generate_index_html(config: &Config) -> String {
     let title = html_escape(&config.title);
     let description = html_escape(&config.description);
@@ -422,8 +433,35 @@ fn generate_index_html(config: &Config) -> String {
         .loading {{ text-align:center; padding:20px; color:#666; }}
         @keyframes spin {{ 100% {{ transform:rotate(360deg); }} }}
         .spinner {{ display:inline-block; width:20px; height:20px; border:2px solid rgba(102,126,234,0.2); border-top:2px solid #667eea; border-radius:50%; animation:spin 0.8s linear infinite; }}
-        @media (max-width:768px) {{ .container {{ margin:15px; padding:20px; }} .header-left h1 {{ font-size:22px; }} .stats {{ gap:8px; }} .stats-item {{ font-size:12px; padding:3px 10px; }} .entry {{ padding:8px 12px; font-size:14px; }} .entry-left .icon {{ font-size:17px; }} .file-info {{ font-size:11px; }} .children {{ padding-left:20px; }} }}
-        @media (max-width:480px) {{ .container {{ margin:10px; padding:15px; }} .header {{ flex-direction:column; align-items:stretch; }} .header-right {{ justify-content:flex-start; }} .btn {{ padding:6px 14px; font-size:13px; }} .children {{ padding-left:15px; }} }}
+
+        /* 返回顶部按钮样式 */
+        .back-to-top {{
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: all 0.3s;
+            display: none;
+            z-index: 999;
+        }}
+        .back-to-top:hover {{
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(102,126,234,0.4);
+        }}
+        .back-to-top.show {{
+            display: block;
+        }}
+
+        @media (max-width:768px) {{ .container {{ margin:15px; padding:20px; }} .header-left h1 {{ font-size:22px; }} .stats {{ gap:8px; }} .stats-item {{ font-size:12px; padding:3px 10px; }} .entry {{ padding:8px 12px; font-size:14px; }} .entry-left .icon {{ font-size:17px; }} .file-info {{ font-size:11px; }} .children {{ padding-left:20px; }} .back-to-top {{ bottom:20px; right:20px; width:45px; height:45px; font-size:20px; }} }}
+        @media (max-width:480px) {{ .container {{ margin:10px; padding:15px; }} .header {{ flex-direction:column; align-items:stretch; }} .header-right {{ justify-content:flex-start; }} .btn {{ padding:6px 14px; font-size:13px; }} .children {{ padding-left:15px; }} .back-to-top {{ bottom:15px; right:15px; width:40px; height:40px; font-size:18px; }} }}
     </style>
 </head>
 <body>
@@ -450,6 +488,9 @@ fn generate_index_html(config: &Config) -> String {
         </div>
     </div>
 
+    <!-- 返回顶部按钮 -->
+    <button id="backToTop" class="back-to-top" onclick="scrollToTop()">⬆</button>
+
     <script>
         let loadedPaths = new Set();
         let loadingPaths = new Set();
@@ -458,7 +499,20 @@ fn generate_index_html(config: &Config) -> String {
 
         document.addEventListener('DOMContentLoaded', function() {{
             loadDirectory('');
+            // 监听滚动事件，控制按钮显示
+            window.addEventListener('scroll', function() {{
+                const btn = document.getElementById('backToTop');
+                if (window.scrollY > 300) {{
+                    btn.classList.add('show');
+                }} else {{
+                    btn.classList.remove('show');
+                }}
+            }});
         }});
+
+        function scrollToTop() {{
+            window.scrollTo({{ top: 0, behavior: 'smooth' }});
+        }}
 
         async function loadDirectory(path, containerId = null) {{
             const container = containerId ? document.getElementById(containerId) : document.getElementById('treeRoot');
