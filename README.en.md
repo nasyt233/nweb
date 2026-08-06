@@ -3,96 +3,103 @@
 [简体中文](README.md)
 [English](README.en.md)
 
-A minimalist file browser written in Rust - no configuration required, ready to use out of the box.
-
+A minimal file browser written in Rust — zero configuration, ready to run out of the box.
 
 ## Features
+- 📁 Single-page navigation: Expand folders inline without page reloads
+- 🌐 Full native support for Chinese paths and filenames
+- 🎨 Fully customizable appearance: site title, description, background image, transparency, blur effect
+- 🌙 Built-in dark mode for eye protection
+- 📋 Access logging: record request path, status code, visitor IP address
+- 🔐 Admin dashboard: edit config online, view runtime status and access logs
+- 🔒 Sensitive file hiding: `nweb.yml` and `nweb.log` are hidden from file lists
+- 💾 Universal file download: support for all MIME types
+- ⚡ Lightning fast response: only scan current directory, load content on demand
 
-- 📁 single-page browsing: Click on the folder to expand without jumping to the page.
-- 🎨 customizable appearance: modify title, introduction, background image, transparency, and blur via 'nweb.yml'.
-- 📋 log recording: Each request (path + status code) is automatically recorded to 'nweb.log' for easy troubleshooting.
-- 🔒 hide sensitive files: 'nweb.yml', 'nweb.log', 'README*' are not visible in the list, and direct access returns 404.
-- 💾 file download: Click on any file to download. All MIME types are supported.
-- ⚡ Quick response: only scans the current directory, deep folders are loaded on demand, and performance is excellent.
-
-Get started quickly
-
-1. fix
-From [Releases] (https://github.com/nasyt233/nweb/releases) to download the corresponding platform ` nweb ` binary file, or to compile:
-
-Universal One-Click Installation Script
+## Quick Start
+### Installation
+One-click installation script (Linux/macOS):
 ```bash
 bash -c "$(curl -L https://raw.gitcode.com/nasyt/nweb/raw/master/install.sh)"
 ```
 
-Build from the source code
+Download prebuilt binaries from [Releases](https://github.com/nasyt233/nweb/releases), or build from source manually:
 ```bash
 git clone https://github.com/nasyt233/nweb.git
 cd nweb
 cargo build --release
-` ` `
+```
 
-2. Run
-
+### Run
+Basic legacy startup syntax:
 ```bash
-./nweb < Directory > < Port >
-` ` `
+./nweb <directory> <port>
+```
 
-Example (taking the current directory as the root directory, port 8080) :
-
+Example (serve current directory on port 8080):
 ```bash
 ./nweb . 8080
-` ` `
+```
 
-Once launched, open a browser and visit http://127.0.0.1:8080 to view the file.
+- File browser: http://127.0.0.1:8080
+- Admin panel: http://127.0.0.1:8080/@admin
+- Default credentials: `nweb` / `nweb`
 
-3. Custom Configuration (Optional)
-
-Create the nweb.yml file in the service root directory (automatically generated upon the first startup), with the following content:
-
+## Configuration File
+`nweb.yml` will be auto-generated on first launch. Changes take effect instantly without restarting the service.
 ```yaml
-title: "My File Station" # Web Page Title
-description: "File Browser" # Webpage Introduction
-Background_api: "https://example.com/bg.jpg" # background URL
-opacity: 0.3 # Background transparency (0-1)
-blur: "5px" # frosted glass blur degree
-` ` `
+title: "My File Station"
+description: "File Browser"
+background_api: "https://www.loliapi.com/acg/"
+opacity: 0.3
+blur: "5px"
+show_hidden: false
+index_file: "index.html"
+admin_user: "nweb"
+admin_pass: "nweb"
+default_sort: "name"          # Available options: name / size / time
+show_file_size: true
+show_admin_btn: true
+clear_log_on_start: true
+home_dir: ""                  # Custom root directory; leave empty to use launch directory
+```
 
-The modification will take effect after restarting the service.
-
-Advanced usage
-
-Get the directory tree JSON
-
-External programs can obtain the JSON structure of any directory through the /api/ path, for example:
-
+## Advanced Usage
+### API Endpoints
+Fetch directory tree as JSON:
 ```bash
-The curl http://127.0.0.1:8080/api/src
-` ` `
+curl http://127.0.0.1:8080/api/tree/
+curl http://127.0.0.1:8080/api/src
+```
 
-Return
-
+Sample JSON response:
 ```json
 [
-{"name": "main.rs", "is_dir": false, "size": 1024, "path": "src/main.rs"},
-{"name": "lib", "is_dir": true, "size": 0, "path": "src/lib"}
+  {"name": "main.rs", "is_dir": false, "size": 1024, "path": "src/main.rs"},
+  {"name": "lib", "is_dir": true, "size": 0, "path": "src/lib"}
 ]
-` ` `
+```
 
-"Log"
+### CLI Arguments
+| Argument | Description | Default Value |
+| ---- | ---- | ---- |
+| `<directory> <port>` | Legacy positional startup arguments | - |
+| -d, --dir | Set root serving directory | `.` |
+| -p, --port | Set listening port | `8080` |
+| -H, --host | Bind listening IP address | `0.0.0.0` |
+| -h, --help | Print help information | - |
+| -v, --version | Print program version | - |
 
-All requests (including API and file downloads) will be recorded in nweb.log and simultaneously output to the terminal in the following format:
+## Log Format
+Sample log output:
+```
+[22:18:10] ✓ 200 192.168.1.100 /
+[22:18:10] ✓ 200 192.168.1.100 /api/tree/
+[22:19:00] ✓ 200 192.168.1.100 /api/tree/target
+```
 
-` ` `
-[2025-01-01 12:00:00] / 200
-[2025-01-01 12:00:01] /api/src 200
-[2025-01-01 12:00:02] /README.md 404
-` ` `
-
-"License"
-
+## License
 MIT License
 
-"Communication group.
-
-Welcome to join the NAS Youtiao Technology Exchange Group at 610699712
+## Community Group
+QQ Group: 610699712
