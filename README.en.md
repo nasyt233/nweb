@@ -11,7 +11,7 @@ A minimal file browser written in Rust — zero configuration, ready to run out 
 - 🎨 Fully customizable appearance: site title, description, background image, transparency, blur effect
 - 🌙 Built-in dark mode for eye protection
 - 📋 Access logging: record request path, status code, visitor IP address
-- 🔐 Admin dashboard: edit config online, view runtime status and access logs
+- 🔐 Admin dashboard: edit config online, view runtime status and access logs, Run commands, etc.
 - 🔒 Sensitive file hiding: `nweb.yml` and `nweb.log` are hidden from file lists
 - 💾 Universal file download: support for all MIME types
 - ⚡ Lightning fast response: only scan current directory, load content on demand

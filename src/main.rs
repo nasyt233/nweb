@@ -8,14 +8,15 @@ use warp::Filter;
 use warp::http::{Response, StatusCode};
 use std::path::PathBuf;
 use std::net::IpAddr;
+use std::time::{SystemTime, UNIX_EPOCH};
 use config::{ensure_config, load_config, Config};
 use utils::expand_path;
-use handler::{handle_request, is_valid_auth, handle_admin_page, get_admin_config, update_admin_config, get_admin_logs, get_admin_status};
+use handler::{handle_request, is_valid_auth, handle_admin_page, get_admin_config, update_admin_config, get_admin_logs, get_admin_status, exec_command};
 
 /// nweb - Rust 文件服务器
 #[derive(Parser, Debug)]
 #[command(name = "nweb")]
-#[command(version = "0.5.0")]
+#[command(version = "0.6.0")]
 #[command(author = "NAS油条")]
 #[command(about = "一个用 Rust 编写的轻量级文件服务器", long_about = None)]
 #[command(disable_help_flag = true)]
@@ -54,7 +55,7 @@ async fn main() {
     }
 
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        eprintln!("nweb - Rust 文件服务器 v1.0");
+        eprintln!("nweb - Rust 文件服务器 v0.5.0");
         eprintln!("");
         eprintln!("用法:");
         eprintln!("  nweb <目录> <端口>");
@@ -76,7 +77,7 @@ async fn main() {
     }
 
     if args.iter().any(|a| a == "-v" || a == "--version") {
-        eprintln!("nweb v1.0.0");
+        eprintln!("nweb v0.6.0");
         eprintln!("🤓 NAS油条 出品");
         std::process::exit(0);
     }
@@ -117,6 +118,12 @@ async fn main() {
     ensure_config(&root_dir);
     let config = load_config(&root_dir).unwrap_or_else(Config::default);
 
+    // 记录启动时间（用于计算运行时间）
+    let start_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
     // 清理日志
     let log_path = root_dir.join("nweb.log");
     if config.clear_log_on_start {
@@ -130,17 +137,17 @@ async fn main() {
             .await;
     }
 
-    // ============================================
+
     // 启动信息
-    // ============================================
-    println!("╔══════════════════════════════════╗");
-    println!("║  🦀 nweb - Rust 文件服务器       ║");
-    println!("║  🤓 NAS油条 出品                 ║");
-    println!("╚══════════════════════════════════╝");
+
+    println!("╔═══════════════════════════════════════╗");
+    println!("║  🦀 nweb - Rust 文件服务器 v0.6.0     ║");
+    println!("║  🤓 NAS油条 出品                      ║");
+    println!("╚═══════════════════════════════════════╝");
     println!();
     println!("📁 服务目录: {}", root_dir.display());
     println!("🌐 访问地址: http://{}:{}", host, port);
-    println!("🔨️ 管理后台: http://{}:{}/@admin", host, port);
+    println!("🔨 管理后台: http://{}:{}/@admin", host, port);
     println!("📄 日志文件: {}", log_path.display());
     println!();
     println!("🔐 管理后台认证信息:");
@@ -151,8 +158,7 @@ async fn main() {
     println!();
     println!("💡 按 Ctrl+C 停止服务");
 
-
-    // 1. 主路由 获取客户端 IP
+    // 1. 主路由（完全无认证，获取客户端 IP）
 
     let main_routes = warp::any()
         .and(warp::path::tail())
@@ -168,9 +174,8 @@ async fn main() {
             }
         });
 
-    // 2. 管理路由 认证 /@admin
+    // 2. 管理路由（带认证）- 固定 /@admin
 
-    // 管理页面 - /@admin
     let admin_page = warp::path!("@admin")
         .and(warp::get())
         .and(warp::header::optional::<String>("authorization"))
@@ -261,6 +266,7 @@ async fn main() {
         .and(warp::header::optional::<String>("authorization"))
         .and_then({
             let root = root_dir.clone();
+            let start = start_time;
             move |auth_header: Option<String>| {
                 let root = root.clone();
                 async move {
@@ -271,17 +277,41 @@ async fn main() {
                             .body(b"Unauthorized".to_vec())
                             .unwrap());
                     }
-                    get_admin_status(root).await
+                    get_admin_status(root, start).await
                 }
             }
         });
 
-    // 3. 组合设置
+    // POST /@admin/exec - 命令执行
+    let admin_exec = warp::path!("@admin" / "exec")
+        .and(warp::post())
+        .and(warp::header::optional::<String>("authorization"))
+        .and(warp::body::json())
+        .and_then({
+            let root = root_dir.clone();
+            move |auth_header: Option<String>, body: serde_json::Value| {
+                let root = root.clone();
+                async move {
+                    if !is_valid_auth(&root, auth_header, true).await {
+                        return Ok(Response::builder()
+                            .status(StatusCode::UNAUTHORIZED)
+                            .header("WWW-Authenticate", "Basic realm=\"nweb admin\"")
+                            .body(b"Unauthorized".to_vec())
+                            .unwrap());
+                    }
+                    exec_command(root, body).await
+                }
+            }
+        });
+
+    // 3. 组合路由
+
     let routes = admin_page
         .or(admin_config_get)
         .or(admin_config_post)
         .or(admin_logs)
         .or(admin_status)
+        .or(admin_exec)
         .or(main_routes);
 
     warp::serve(routes)

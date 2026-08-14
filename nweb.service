@@ -1,0 +1,12 @@
+[Unit]
+Description=nweb service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root
+Environment="HOME=/root"
+ExecStart=/usr/bin/nweb $HOME 7891
+
+[Install]
+WantedBy=multi-user.target

@@ -6,7 +6,7 @@ bin-release/
 /target
 # Other files and folders
 .settings/
-
+Cargo.lock
 # Executables
 *.swf
 *.air

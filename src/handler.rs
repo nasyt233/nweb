@@ -7,11 +7,16 @@ use tokio::fs as tokio_fs;
 use tokio::io::AsyncWriteExt;
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::config::{Config, load_config, save_config};
-use crate::html::{generate_index_html, generate_admin_html};
+use crate::html::home::generate_index_html;
+use crate::html::admin::generate_admin_html;
 use sysinfo::{System, Pid};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use std::process::Command;
+
+static AUTH_LOGGED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, serde::Serialize)]
 struct FileNode {
@@ -56,7 +61,7 @@ pub async fn log_request(root: &PathBuf, path: &str, status: u16, client_ip: &st
     }
 }
 
-/// 目录树生成
+/// 目录树生成（支持排序）
 fn get_directory_tree(root: &PathBuf, path: &str, config: &Config) -> Result<Vec<FileNode>, String> {
     let current_path = if path.is_empty() {
         root.clone()
@@ -91,7 +96,7 @@ fn get_directory_tree(root: &PathBuf, path: &str, config: &Config) -> Result<Vec
             .unwrap_or(&path)
             .to_string_lossy()
             .to_string();
-        
+
         let modified_time = if let Ok(meta) = fs::metadata(&path) {
             if let Ok(time) = meta.modified() {
                 time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()
@@ -101,16 +106,16 @@ fn get_directory_tree(root: &PathBuf, path: &str, config: &Config) -> Result<Vec
         } else {
             0
         };
-        
-        nodes.push(FileNode { 
-            name, 
-            is_dir, 
-            size, 
+
+        nodes.push(FileNode {
+            name,
+            is_dir,
+            size,
             path: relative_path,
             modified_time,
         });
     }
-    
+
     match config.default_sort.as_str() {
         "size" => {
             nodes.sort_by(|a, b| {
@@ -146,7 +151,7 @@ fn get_directory_tree(root: &PathBuf, path: &str, config: &Config) -> Result<Vec
             });
         }
     }
-    
+
     Ok(nodes)
 }
 
@@ -161,7 +166,7 @@ pub async fn handle_request(
     let client_ip = remote_addr
         .map(|addr| addr.ip().to_string())
         .unwrap_or_else(|| "unknown".to_string());
-    
+
     // ========== 处理 home_dir ==========
     let effective_root = if !config.home_dir.is_empty() {
         let home_path = PathBuf::from(&config.home_dir);
@@ -173,7 +178,7 @@ pub async fn handle_request(
     } else {
         root.clone()
     };
-    
+
     if tail == "nweb.yml" || tail == "nweb.log" {
         log_request(root, tail, 404, &client_ip).await;
         return Ok(Response::builder()
@@ -296,9 +301,10 @@ pub async fn handle_request(
         .body(b"404 Not Found".to_vec())
         .unwrap())
 }
+
 /// ==================== 管理后台 ====================
 
-/// 验证 Basic Auth
+/// 后台验证 Basic Auth
 pub async fn is_valid_auth(root: &PathBuf, auth_header: Option<String>, is_admin: bool) -> bool {
     match auth_header {
         Some(header) => {
@@ -320,9 +326,15 @@ pub async fn is_valid_auth(root: &PathBuf, auth_header: Option<String>, is_admin
             }
             let config = load_config(root).unwrap_or_else(Config::default);
             let valid = parts[0] == config.admin_user && parts[1] == config.admin_pass;
+            
+            // 只在管理接口打印日志
             if is_admin {
                 if valid {
-                    println!("[AUTH] ✅ 认证成功");
+                    // 只打印一次认证成功
+                    if !AUTH_LOGGED.load(Ordering::Relaxed) {
+                        println!("[AUTH] ✅ 认证成功");
+                        AUTH_LOGGED.store(true, Ordering::Relaxed);
+                    }
                 } else {
                     println!("[AUTH] ❌ 认证失败");
                 }
@@ -439,26 +451,103 @@ pub async fn get_admin_logs(root: PathBuf) -> Result<Response<Vec<u8>>, warp::Re
 }
 
 /// GET /@admin/status - 返回运行状态
-pub async fn get_admin_status(_root: PathBuf) -> Result<Response<Vec<u8>>, warp::Rejection> {
+pub async fn get_admin_status(_root: PathBuf, start_time: u64) -> Result<Response<Vec<u8>>, warp::Rejection> {
     let mut sys = System::new();
     sys.refresh_all();
     let pid = std::process::id();
     let process = sys.process(Pid::from_u32(pid));
     let memory = process.map(|p| p.memory() / 1024).unwrap_or(0);
     let cpu = process.map(|p| p.cpu_usage()).unwrap_or(0.0);
-    let start_time = SystemTime::now()
+
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
+    let uptime = now.saturating_sub(start_time);
+
     let status = json!({
         "pid": pid,
         "memory": memory,
         "cpu": cpu,
-        "uptime": start_time,
+        "uptime": uptime,
     });
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(status.to_string().into_bytes())
+        .unwrap())
+}
+
+/// POST /@admin/exec - 执行命令（仅管理员）
+pub async fn exec_command(
+    root: PathBuf,
+    body: serde_json::Value,
+) -> Result<Response<Vec<u8>>, warp::Rejection> {
+    // 解析 JSON 获取命令
+    let cmd = match body.get("cmd").and_then(|v| v.as_str()) {
+        Some(c) => c.trim(),
+        None => {
+            return Ok(Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(b"Missing 'cmd' field".to_vec())
+                .unwrap());
+        }
+    };
+
+    if cmd.is_empty() {
+        return Ok(Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(b"Empty command".to_vec())
+            .unwrap());
+    }
+
+    // 记录日志
+    let log_msg = format!("[EXEC] 管理员: {}\n", cmd);
+    println!("{}", log_msg.trim());
+    let log_path = root.join("nweb.log");
+    if let Ok(mut file) = tokio_fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&log_path)
+        .await
+    {
+        let _ = file.write_all(log_msg.as_bytes()).await;
+    }
+
+    // 异步执行命令（使用 spawn_blocking 避免阻塞）
+    let cmd_owned = cmd.to_string();
+    let result = tokio::task::spawn_blocking(move || {
+        let output = if cfg!(target_os = "windows") {
+            Command::new("cmd")
+                .args(["/C", &cmd_owned])
+                .output()
+        } else {
+            Command::new("sh")
+                .args(["-c", &cmd_owned])
+                .output()
+        };
+
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                let exit_code = out.status.code().unwrap_or(-1);
+                (exit_code, stdout, stderr)
+            }
+            Err(e) => (-1, String::new(), format!("执行失败: {}", e)),
+        }
+    }).await.unwrap_or((-1, String::new(), "任务 panic".to_string()));
+
+    let (exit_code, stdout, stderr) = result;
+    let response = json!({
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+    });
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/json")
+        .body(response.to_string().into_bytes())
         .unwrap())
 }

@@ -1,0 +1,14 @@
+title: nweb
+description: 本网页由 nweb 自动生成
+background_api: https://www.loliapi.com/acg/
+opacity: 0.3
+blur: 5px
+show_hidden: false
+index_file: index.html
+admin_user: nweb
+admin_pass: nweb
+default_sort: name
+show_file_size: true
+show_admin_btn: true
+clear_log_on_start: true
+home_dir: ''
