@@ -9,7 +9,7 @@ pub fn html_escape(s: &str) -> String {
         .replace("'", "&#x27;")
 }
 
-/// 主页面 HTML
+/// 生成主页面 HTML
 pub fn generate_index_html(config: &Config) -> String {
     let title = html_escape(&config.title);
     let description = html_escape(&config.description);
@@ -31,20 +31,18 @@ pub fn generate_index_html(config: &Config) -> String {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{}</title>
     <style>
-        /* ========== 全局样式 ========== */
+        /* ========== 全局重置 ========== */
         * {{
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }}
-        
         html {{
             margin: 0;
             padding: 0;
             min-height: 100vh;
             height: 100%;
         }}
-        
         body {{
             margin: 0;
             padding: 0;
@@ -114,7 +112,6 @@ pub fn generate_index_html(config: &Config) -> String {
         .btn-primary:hover {{
             box-shadow:0 4px 15px rgba(102,126,234,0.4);
         }}
-        /* ========== 主题切换按钮 ========== */
         .theme-btn {{
             background: rgba(255, 255, 255, 0.3);
             border: 1px solid rgba(255, 255, 255, 0.5);
@@ -215,7 +212,6 @@ pub fn generate_index_html(config: &Config) -> String {
         @keyframes spin {{ 100% {{ transform:rotate(360deg); }} }}
         .spinner {{ display:inline-block; width:20px; height:20px; border:2px solid rgba(102,126,234,0.2); border-top:2px solid #667eea; border-radius:50%; animation:spin 0.8s linear infinite; }}
 
-        /* 返回顶部按钮 */
         .back-to-top {{
             position: fixed;
             bottom: 30px;
@@ -239,6 +235,152 @@ pub fn generate_index_html(config: &Config) -> String {
         }}
         .back-to-top.show {{ display: block; }}
 
+        /* ========== 图片预览器 ========== */
+        #imageViewerOverlay {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.92);
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            user-select: none;
+        }}
+        .viewer-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            background: rgba(0, 0, 0, 0.5);
+            flex-shrink: 0;
+            z-index: 2;
+        }}
+        .viewer-counter {{
+            color: #fff;
+            font-size: 14px;
+            font-weight: 500;
+        }}
+        .viewer-controls {{
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }}
+        .viewer-btn {{
+            width: 36px;
+            height: 36px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+        .viewer-btn:hover {{
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }}
+        .viewer-close {{
+            background: rgba(255, 70, 70, 0.3);
+            font-size: 18px;
+        }}
+        .viewer-close:hover {{
+            background: rgba(255, 70, 70, 0.6);
+        }}
+        .viewer-body {{
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            cursor: zoom-out;
+        }}
+        .viewer-nav {{
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 50px;
+            height: 80px;
+            border: none;
+            background: rgba(0, 0, 0, 0.4);
+            color: #fff;
+            font-size: 32px;
+            cursor: pointer;
+            transition: all 0.3s;
+            z-index: 3;
+            border-radius: 4px;
+        }}
+        .viewer-nav:hover {{
+            background: rgba(255, 255, 255, 0.2);
+        }}
+        .viewer-prev {{
+            left: 20px;
+        }}
+        .viewer-next {{
+            right: 20px;
+        }}
+        .viewer-image-wrapper {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            padding: 20px;
+        }}
+        #viewerImage {{
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            transition: transform 0.2s ease;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+        }}
+        .viewer-footer {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.4);
+            flex-shrink: 0;
+            z-index: 2;
+        }}
+        .viewer-footer span {{
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 13px;
+            font-family: monospace;
+        }}
+        body.night-mode #imageViewerOverlay {{
+            background: rgba(10, 10, 10, 0.95);
+        }}
+        @media (max-width: 768px) {{
+            .viewer-nav {{
+                width: 36px;
+                height: 60px;
+                font-size: 24px;
+            }}
+            .viewer-prev {{ left: 8px; }}
+            .viewer-next {{ right: 8px; }}
+            .viewer-btn {{
+                width: 32px;
+                height: 32px;
+                font-size: 14px;
+            }}
+            .viewer-header {{
+                padding: 8px 12px;
+            }}
+            .viewer-counter {{
+                font-size: 12px;
+            }}
+            .viewer-footer span {{
+                font-size: 11px;
+            }}
+        }}
+
         /* ========== 夜间模式 ========== */
         html.night-mode,
         body.night-mode {{
@@ -247,6 +389,8 @@ pub fn generate_index_html(config: &Config) -> String {
             background-position: center;
             min-height: 100vh;
             height: 100%;
+            margin: 0;
+            padding: 0;
         }}
         body.night-mode .container {{
             background: rgba(30, 30, 30, {});
@@ -392,10 +536,12 @@ pub fn generate_index_html(config: &Config) -> String {
         // ========== 夜间模式 ==========
         (function() {{
             const themeToggle = document.getElementById('themeToggle');
+            const html = document.documentElement;
             const body = document.body;
 
             const savedTheme = localStorage.getItem('nweb_theme');
             if (savedTheme === 'night') {{
+                html.classList.add('night-mode');
                 body.classList.add('night-mode');
                 themeToggle.textContent = '☀️ 日间模式';
             }} else {{
@@ -403,8 +549,9 @@ pub fn generate_index_html(config: &Config) -> String {
             }}
 
             themeToggle.addEventListener('click', function() {{
+                html.classList.toggle('night-mode');
                 body.classList.toggle('night-mode');
-                const isNight = body.classList.contains('night-mode');
+                const isNight = html.classList.contains('night-mode');
                 themeToggle.textContent = isNight ? '☀️ 日间模式' : '🌙 夜间模式';
                 localStorage.setItem('nweb_theme', isNight ? 'night' : 'day');
             }});
@@ -416,10 +563,199 @@ pub fn generate_index_html(config: &Config) -> String {
         let totalFiles = 0;
         let totalDirs = 0;
 
+        // ========== 图片预览器 ==========
+        let imageViewerData = [];
+        let imageViewerIndex = 0;
+        let imageViewerZoom = 1;
+        let imageViewerRotate = 0;
+
+        function openImageViewer(imagePath) {{
+            var images = [];
+            var items = document.querySelectorAll('.entry.file-entry');
+            for (var i = 0; i < items.length; i++) {{
+                var el = items[i];
+                var name = el.querySelector('.name')?.textContent || '';
+                if (name && /\\.(jpg|jpeg|png|gif|bmp|webp|svg|ico)$/i.test(name)) {{
+                    var dataImg = el.getAttribute('data-img');
+                    if (dataImg) {{
+                        images.push(dataImg);
+                    }} else {{
+                        var href = el.getAttribute('href');
+                        if (href && href.startsWith('/')) {{
+                            images.push(href);
+                        }}
+                    }}
+                }}
+            }}
+
+            var uniqueImages = [];
+            for (var j = 0; j < images.length; j++) {{
+                if (uniqueImages.indexOf(images[j]) === -1) {{
+                    uniqueImages.push(images[j]);
+                }}
+            }}
+
+            if (uniqueImages.length === 0) {{
+                imageViewerData = [imagePath];
+                imageViewerIndex = 0;
+            }} else {{
+                var index = uniqueImages.indexOf(imagePath);
+                imageViewerData = uniqueImages;
+                imageViewerIndex = index >= 0 ? index : 0;
+            }}
+
+            imageViewerZoom = 1;
+            imageViewerRotate = 0;
+            showImageViewer();
+        }}
+
+        function showImageViewer() {{
+            var existing = document.getElementById('imageViewerOverlay');
+            if (existing) {{
+                existing.remove();
+            }}
+
+            if (imageViewerData.length === 0) return;
+
+            var overlay = document.createElement('div');
+            overlay.id = 'imageViewerOverlay';
+            overlay.innerHTML =
+                '<div class=\"viewer-header\">' +
+                '<span class=\"viewer-counter\">' + (imageViewerIndex + 1) + ' / ' + imageViewerData.length + '</span>' +
+                '<div class=\"viewer-controls\">' +
+                '<button class=\"viewer-btn\" onclick=\"imageViewerPrev()\" title=\"上一张\">◀</button>' +
+                '<button class=\"viewer-btn\" onclick=\"imageViewerNext()\" title=\"下一张\">▶</button>' +
+                '<button class=\"viewer-btn\" onclick=\"imageViewerZoomIn()\" title=\"放大\">➕</button>' +
+                '<button class=\"viewer-btn\" onclick=\"imageViewerZoomOut()\" title=\"缩小\">➖</button>' +
+                '<button class=\"viewer-btn\" onclick=\"imageViewerRotateImage()\" title=\"旋转\">🔄</button>' +
+                '<button class=\"viewer-btn viewer-close\" onclick=\"closeImageViewer()\" title=\"关闭\">✕</button>' +
+                '</div>' +
+                '</div>' +
+                '<div class=\"viewer-body\" id=\"viewerBody\">' +
+                '<button class=\"viewer-nav viewer-prev\" onclick=\"imageViewerPrev()\">‹</button>' +
+                '<div class=\"viewer-image-wrapper\">' +
+                '<img id=\"viewerImage\" src=\"' + imageViewerData[imageViewerIndex] + '\" alt=\"图片预览\" />' +
+                '</div>' +
+                '<button class=\"viewer-nav viewer-next\" onclick=\"imageViewerNext()\">›</button>' +
+                '</div>' +
+                '<div class=\"viewer-footer\">' +
+                '<span id=\"viewerFilename\">' + imageViewerData[imageViewerIndex].split('/').pop() + '</span>' +
+                '<span id=\"viewerZoomInfo\">100%</span>' +
+                '</div>';
+            document.body.appendChild(overlay);
+
+            document.addEventListener('keydown', imageViewerKeyHandler);
+
+            document.getElementById('viewerBody').addEventListener('click', function(e) {{
+                if (e.target === this) {{
+                    closeImageViewer();
+                }}
+            }});
+
+            document.getElementById('viewerImage').addEventListener('wheel', function(e) {{
+                e.preventDefault();
+                if (e.deltaY < 0) {{
+                    imageViewerZoomIn();
+                }} else {{
+                    imageViewerZoomOut();
+                }}
+            }});
+
+            updateViewerImage();
+        }}
+
+        function updateViewerImage() {{
+            var img = document.getElementById('viewerImage');
+            if (!img || imageViewerData.length === 0) return;
+
+            img.src = imageViewerData[imageViewerIndex];
+            img.style.transform = 'scale(' + imageViewerZoom + ') rotate(' + imageViewerRotate + 'deg)';
+
+            var counter = document.querySelector('.viewer-counter');
+            var filename = document.getElementById('viewerFilename');
+            var zoomInfo = document.getElementById('viewerZoomInfo');
+
+            if (counter) counter.textContent = (imageViewerIndex + 1) + ' / ' + imageViewerData.length;
+            if (filename) filename.textContent = imageViewerData[imageViewerIndex].split('/').pop();
+            if (zoomInfo) zoomInfo.textContent = Math.round(imageViewerZoom * 100) + '%';
+        }}
+
+        function imageViewerPrev() {{
+            if (imageViewerData.length <= 1) return;
+            imageViewerIndex = (imageViewerIndex - 1 + imageViewerData.length) % imageViewerData.length;
+            imageViewerZoom = 1;
+            imageViewerRotate = 0;
+            updateViewerImage();
+        }}
+
+        function imageViewerNext() {{
+            if (imageViewerData.length <= 1) return;
+            imageViewerIndex = (imageViewerIndex + 1) % imageViewerData.length;
+            imageViewerZoom = 1;
+            imageViewerRotate = 0;
+            updateViewerImage();
+        }}
+
+        function imageViewerZoomIn() {{
+            imageViewerZoom = Math.min(imageViewerZoom + 0.1, 3);
+            updateViewerImage();
+        }}
+
+        function imageViewerZoomOut() {{
+            imageViewerZoom = Math.max(imageViewerZoom - 0.1, 0.1);
+            updateViewerImage();
+        }}
+
+        function imageViewerRotateImage() {{
+            imageViewerRotate = (imageViewerRotate + 90) % 360;
+            updateViewerImage();
+        }}
+
+        function imageViewerKeyHandler(e) {{
+            if (!document.getElementById('imageViewerOverlay')) return;
+
+            switch(e.key) {{
+                case 'Escape':
+                    closeImageViewer();
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    imageViewerPrev();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    imageViewerNext();
+                    break;
+                case '+':
+                case '=':
+                    e.preventDefault();
+                    imageViewerZoomIn();
+                    break;
+                case '-':
+                case '_':
+                    e.preventDefault();
+                    imageViewerZoomOut();
+                    break;
+                case 'r':
+                case 'R':
+                    e.preventDefault();
+                    imageViewerRotateImage();
+                    break;
+            }}
+        }}
+
+        function closeImageViewer() {{
+            document.removeEventListener('keydown', imageViewerKeyHandler);
+            var overlay = document.getElementById('imageViewerOverlay');
+            if (overlay) {{
+                overlay.remove();
+            }}
+        }}
+
         document.addEventListener('DOMContentLoaded', function() {{
             loadDirectory('');
             window.addEventListener('scroll', function() {{
-                const btn = document.getElementById('backToTop');
+                var btn = document.getElementById('backToTop');
                 if (window.scrollY > 300) {{
                     btn.classList.add('show');
                 }} else {{
@@ -433,67 +769,66 @@ pub fn generate_index_html(config: &Config) -> String {
         }}
 
         async function loadDirectory(path, containerId = null) {{
-            const container = containerId ? document.getElementById(containerId) : document.getElementById('treeRoot');
+            var container = containerId ? document.getElementById(containerId) : document.getElementById('treeRoot');
             if (loadedPaths.has(path) || loadingPaths.has(path)) return;
             loadingPaths.add(path);
 
-            const loader = document.createElement('div');
+            var loader = document.createElement('div');
             loader.className = 'loading';
-            loader.innerHTML = '<div class="spinner"></div><p>加载中...</p>';
+            loader.innerHTML = '<div class=\"spinner\"></div><p>加载中...</p>';
             container.appendChild(loader);
 
             try {{
-                const cleanPath = path.replace(/^\/+|\/+$/g, '');
-                const response = await fetch(`/api/tree/${{encodeURIComponent(cleanPath)}}`);
+                var cleanPath = path.replace(/^\/+|\/+$/g, '');
+                var response = await fetch('/api/tree/' + encodeURIComponent(cleanPath));
                 if (!response.ok) {{
-                    const errText = await response.text();
-                    throw new Error(errText || `HTTP ${{response.status}}`);
+                    var errText = await response.text();
+                    throw new Error(errText || 'HTTP ' + response.status);
                 }}
-                const data = await response.json();
+                var data = await response.json();
 
                 loader.remove();
                 loadingPaths.delete(path);
                 loadedPaths.add(path);
 
-                const ul = document.createElement('ul');
+                var ul = document.createElement('ul');
                 ul.className = 'children';
-                ul.id = `children-${{path.replace(/[^a-zA-Z0-9]/g, '_')}}`;
+                ul.id = 'children-' + path.replace(/[^a-zA-Z0-9]/g, '_');
 
-                let filesInDir = 0;
-                let dirsInDir = 0;
+                var filesInDir = 0;
+                var dirsInDir = 0;
 
-                data.forEach(node => {{
-                    const li = document.createElement('li');
+                data.forEach(function(node) {{
+                    var li = document.createElement('li');
 
                     if (node.is_dir) {{
                         dirsInDir++;
-                        const entry = document.createElement('div');
+                        var entry = document.createElement('div');
                         entry.className = 'entry folder-entry';
-                        const toggleSpan = document.createElement('span');
+                        var toggleSpan = document.createElement('span');
                         toggleSpan.className = 'toggle-icon';
                         toggleSpan.innerHTML = '▶';
-                        const entryLeft = document.createElement('span');
+                        var entryLeft = document.createElement('span');
                         entryLeft.className = 'entry-left';
-                        entryLeft.innerHTML = `
-                            <span class="icon">📁</span>
-                            <span class="name">${{node.name}}</span>
-                        `;
+                        entryLeft.innerHTML =
+                            '<span class=\"icon\">📁</span>' +
+                            '<span class=\"name\">' + node.name + '</span>';
                         entry.appendChild(toggleSpan);
                         entry.appendChild(entryLeft);
 
-                        const fileInfo = document.createElement('span');
+                        var fileInfo = document.createElement('span');
                         fileInfo.className = 'file-info';
                         fileInfo.textContent = '目录';
                         entry.appendChild(fileInfo);
 
-                        const childrenContainer = document.createElement('div');
+                        var childrenContainer = document.createElement('div');
                         childrenContainer.className = 'children';
                         childrenContainer.style.display = 'none';
-                        childrenContainer.id = `children-container-${{node.path.replace(/[^a-zA-Z0-9]/g, '_')}}`;
+                        childrenContainer.id = 'children-container-' + node.path.replace(/[^a-zA-Z0-9]/g, '_');
 
                         entry.onclick = function(e) {{
                             e.stopPropagation();
-                            const isOpen = childrenContainer.style.display !== 'none';
+                            var isOpen = childrenContainer.style.display !== 'none';
                             if (isOpen) {{
                                 childrenContainer.style.display = 'none';
                                 toggleSpan.className = 'toggle-icon';
@@ -502,7 +837,7 @@ pub fn generate_index_html(config: &Config) -> String {
                                 childrenContainer.style.display = 'block';
                                 toggleSpan.className = 'toggle-icon open';
                                 toggleSpan.innerHTML = '▼';
-                                const childId = `children-${{node.path.replace(/[^a-zA-Z0-9]/g, '_')}}`;
+                                var childId = 'children-' + node.path.replace(/[^a-zA-Z0-9]/g, '_');
                                 if (!document.getElementById(childId)) {{
                                     loadDirectory(node.path, childrenContainer.id);
                                 }}
@@ -513,31 +848,51 @@ pub fn generate_index_html(config: &Config) -> String {
                         li.appendChild(childrenContainer);
                     }} else {{
                         filesInDir++;
-                        const entry = document.createElement('a');
+                        var entry = document.createElement('a');
                         entry.className = 'entry file-entry';
-                        const filePath = node.path || node.name;
-                        entry.href = `/${{filePath}}`;
-                        entry.target = '_blank';
+                        var filePath = node.path || node.name;
+                        var isImage = /\\.(jpg|jpeg|png|gif|bmp|webp|svg|ico)$/i.test(node.name);
 
-                        let sizeHtml = '';
+                        var sizeHtml = '';
                         if (showFileSize) {{
-                            sizeHtml = `<span class="file-info">${{formatSize(node.size)}}</span>`;
+                            sizeHtml = '<span class=\"file-info\">' + formatSize(node.size) + '</span>';
                         }}
 
-                        entry.innerHTML = `
-                            <span class="entry-left">
-                                <span class="icon">${{getFileIcon(node.name)}}</span>
-                                <span class="name">${{node.name}}</span>
-                            </span>
-                            ${{sizeHtml}}
-                        `;
+                        if (isImage) {{
+                            var imgPath = '/' + filePath;
+                            entry.href = '#';
+                            entry.setAttribute('data-img', imgPath);
+                            (function(path) {{
+                                entry.onclick = function(e) {{
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    openImageViewer(path);
+                                }};
+                            }})(imgPath);
+                            entry.innerHTML =
+                                '<span class=\"entry-left\">' +
+                                '<span class=\"icon\">' + getFileIcon(node.name) + '</span>' +
+                                '<span class=\"name\">' + node.name + '</span>' +
+                                '</span>' +
+                                sizeHtml +
+                                '<span class=\"file-info\" style=\"color:#667eea;\">🖼️ 预览</span>';
+                        }} else {{
+                            entry.href = '/' + filePath;
+                            entry.target = '_blank';
+                            entry.innerHTML =
+                                '<span class=\"entry-left\">' +
+                                '<span class=\"icon\">' + getFileIcon(node.name) + '</span>' +
+                                '<span class=\"name\">' + node.name + '</span>' +
+                                '</span>' +
+                                sizeHtml;
+                        }}
                         li.appendChild(entry);
                     }}
                     ul.appendChild(li);
                 }});
 
                 if (data.length === 0) {{
-                    const emptyLi = document.createElement('li');
+                    var emptyLi = document.createElement('li');
                     emptyLi.style.color = '#999';
                     emptyLi.style.padding = '10px';
                     emptyLi.textContent = '雜鱼 这目录是空的';
@@ -553,15 +908,15 @@ pub fn generate_index_html(config: &Config) -> String {
                 document.getElementById('dirCount').querySelector('.num').textContent = totalDirs;
 
             }} catch (error) {{
-                loader.innerHTML = `<p style="color:#ef4444;">❌ 加载失败: ${{error.message}}</p>`;
+                loader.innerHTML = '<p style=\"color:#ef4444;\">❌ 加载失败: ' + error.message + '</p>';
                 loadingPaths.delete(path);
                 console.error('加载失败:', error);
             }}
         }}
 
         function getFileIcon(filename) {{
-            const ext = filename.split('.').pop().toLowerCase();
-            const icons = {{
+            var ext = filename.split('.').pop().toLowerCase();
+            var icons = {{
                 'html': '🌐', 'htm': '🌐',
                 'css': '🎨',
                 'js': '⚡', 'jsx': '⚡', 'ts': '⚡', 'tsx': '⚡',
@@ -592,21 +947,23 @@ pub fn generate_index_html(config: &Config) -> String {
 
         function formatSize(bytes) {{
             if (bytes === 0) return '0 B';
-            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-            const k = 1024;
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            const size = (bytes / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0);
+            var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            var k = 1024;
+            var i = Math.floor(Math.log(bytes) / Math.log(k));
+            var size = (bytes / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0);
             return size + ' ' + units[i];
         }}
 
         function collapseAll() {{
-            document.querySelectorAll('.children:not(:first-child)').forEach(el => {{
-                el.style.display = 'none';
-            }});
-            document.querySelectorAll('.toggle-icon').forEach(el => {{
-                el.className = 'toggle-icon';
-                el.innerHTML = '▶';
-            }});
+            var items = document.querySelectorAll('.children:not(:first-child)');
+            for (var i = 0; i < items.length; i++) {{
+                items[i].style.display = 'none';
+            }}
+            var icons = document.querySelectorAll('.toggle-icon');
+            for (var j = 0; j < icons.length; j++) {{
+                icons[j].className = 'toggle-icon';
+                icons[j].innerHTML = '▶';
+            }}
         }}
     </script>
 </body>

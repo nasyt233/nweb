@@ -16,7 +16,7 @@ use handler::{handle_request, is_valid_auth, handle_admin_page, get_admin_config
 /// nweb - Rust 文件服务器
 #[derive(Parser, Debug)]
 #[command(name = "nweb")]
-#[command(version = "0.6.0")]
+#[command(version = "0.7.0")]
 #[command(author = "NAS油条")]
 #[command(about = "一个用 Rust 编写的轻量级文件服务器", long_about = None)]
 #[command(disable_help_flag = true)]
@@ -77,7 +77,7 @@ async fn main() {
     }
 
     if args.iter().any(|a| a == "-v" || a == "--version") {
-        eprintln!("nweb v0.6.0");
+        eprintln!("nweb v0.7.0");
         eprintln!("🤓 NAS油条 出品");
         std::process::exit(0);
     }
