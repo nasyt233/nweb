@@ -120,7 +120,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          SRC="target/${{ matrix.target }}/release/${{ matrix.bin_name }}"
+          if [ "${{ matrix.use_zig }}" = "true" ]; then
+            if [ -f "target/release/${{ matrix.bin_name }}" ]; then
+              SRC="target/release/${{ matrix.bin_name }}"
+            else
+              SRC="target/${{ matrix.target }}/release/${{ matrix.bin_name }}"
+            fi
+          else
+            SRC="target/${{ matrix.target }}/release/${{ matrix.bin_name }}"
+          fi
           DST="dist/nweb-${{ steps.version.outputs.version }}-${{ matrix.target_name }}${{ matrix.ext }}"
           cp "$SRC" "$DST"
           if [ "${{ runner.os }}" != "Windows" ]; then
@@ -152,7 +160,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          merge-merge: true
           merge-multiple: true
 
       - name: List artifacts
