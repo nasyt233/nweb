@@ -24,7 +24,7 @@ base64 = "0.21"
 clap = { version = "4.0", features = ["derive"] }
 
 [[bin]]
-name = "ngal"
+name = "nweb"
 path = "src/main.rs"
 
 [profile.release]

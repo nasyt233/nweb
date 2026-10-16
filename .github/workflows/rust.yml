@@ -119,12 +119,6 @@ jobs:
       - name: Package binary
         shell: bash
         run: |
-          echo "==== ls target ===="
-          ls -la ./target
-          echo "==== ls target/release ===="
-          ls -la ./target/release || echo "target/release 不存在"
-          echo "==== ls target/x86_64-unknown-linux-musl ===="
-          ls -la ./target/x86_64-unknown-linux-musl/release || echo "triple目录不存在"
           mkdir -p dist
           if [ "${{ matrix.use_zig }}" = "true" ]; then
             if [ -f "target/release/${{ matrix.bin_name }}" ]; then
