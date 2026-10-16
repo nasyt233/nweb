@@ -55,7 +55,7 @@ async fn main() {
     }
 
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        eprintln!("nweb - Rust 文件服务器 v0.5.0");
+        eprintln!("nweb - Rust 文件服务器 v0.7.0");
         eprintln!("");
         eprintln!("用法:");
         eprintln!("  nweb <目录> <端口>");
@@ -141,7 +141,7 @@ async fn main() {
     // 启动信息
 
     println!("╔═══════════════════════════════════════╗");
-    println!("║  🦀 nweb - Rust 文件服务器 v0.6.0     ║");
+    println!("║  🦀 nweb - Rust 文件服务器 v0.7.0     ║");
     println!("║  🤓 NAS油条 出品                      ║");
     println!("╚═══════════════════════════════════════╝");
     println!();
