@@ -22,3 +22,14 @@ mime_guess = "2.0"
 sysinfo = "0.30"
 base64 = "0.21"
 clap = { version = "4.0", features = ["derive"] }
+
+[[bin]]
+name = "ngal"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+strip = true
+opt-level = "z"
+codegen-units = 1
+panic = "abort"
