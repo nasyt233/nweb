@@ -11,7 +11,10 @@ use std::net::IpAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use config::{ensure_config, load_config, Config};
 use utils::expand_path;
-use handler::{handle_request, is_valid_auth, handle_admin_page, get_admin_config, update_admin_config, get_admin_logs, get_admin_status, exec_command};
+use handler::{
+    handle_request, is_valid_auth, handle_admin_page, get_admin_config,
+    update_admin_config, get_admin_logs, get_admin_status, exec_command,
+};
 
 /// nweb - Rust 文件服务器
 #[derive(Parser, Debug)]
@@ -115,10 +118,19 @@ async fn main() {
         std::process::exit(1);
     }
 
+    // ★ 关键修复：规范化为绝对路径，避免相对路径导致的 strip_prefix 问题
+    let root_dir = match std::fs::canonicalize(&root_dir) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("⚠️  无法规范化路径: {}, 使用原路径", e);
+            root_dir
+        }
+    };
+
     ensure_config(&root_dir);
     let config = load_config(&root_dir).unwrap_or_else(Config::default);
 
-    // 记录启动时间（用于计算运行时间）
+    // 记录启动时间
     let start_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -137,13 +149,13 @@ async fn main() {
             .await;
     }
 
-
+    // ============================================
     // 启动信息
-
-    println!("╔═══════════════════════════════════════╗");
-    println!("║  🦀 nweb - Rust 文件服务器 v0.7.0     ║");
-    println!("║  🤓 NAS油条 出品                      ║");
-    println!("╚═══════════════════════════════════════╝");
+    // ============================================
+    println!("╔═════════════════════════════════════════╗");
+    println!("║  🦀 nweb - Rust 文件服务器 v0.7.0       ║");
+    println!("║  🤓 NAS油条 出品                        ║");
+    println!("╚═════════════════════════════════════════╝");
     println!();
     println!("📁 服务目录: {}", root_dir.display());
     println!("🌐 访问地址: http://{}:{}", host, port);
@@ -158,15 +170,18 @@ async fn main() {
     println!();
     println!("💡 按 Ctrl+C 停止服务");
 
-    // 1. 主路由（完全无认证，获取客户端 IP）
-
+    // ============================================
+    // 1. 主路由（无认证）
+    // ============================================
     let main_routes = warp::any()
         .and(warp::path::tail())
         .and(warp::path::full())
         .and(warp::addr::remote())
         .and_then({
             let root = root_dir.clone();
-            move |tail: warp::path::Tail, full: warp::path::FullPath, remote_addr: Option<std::net::SocketAddr>| {
+            move |tail: warp::path::Tail,
+                  full: warp::path::FullPath,
+                  remote_addr: Option<std::net::SocketAddr>| {
                 let root = root.clone();
                 async move {
                     handle_request(&root, tail.as_str(), full.as_str(), remote_addr).await
@@ -174,8 +189,9 @@ async fn main() {
             }
         });
 
-    // 2. 管理路由（带认证）- 固定 /@admin
-
+    // ============================================
+    // 2. 管理路由（带认证）
+    // ============================================
     let admin_page = warp::path!("@admin")
         .and(warp::get())
         .and(warp::header::optional::<String>("authorization"))
@@ -196,7 +212,6 @@ async fn main() {
             }
         });
 
-    // GET /@admin/config
     let admin_config_get = warp::path!("@admin" / "config")
         .and(warp::get())
         .and(warp::header::optional::<String>("authorization"))
@@ -217,7 +232,6 @@ async fn main() {
             }
         });
 
-    // POST /@admin/config
     let admin_config_post = warp::path!("@admin" / "config")
         .and(warp::post())
         .and(warp::header::optional::<String>("authorization"))
@@ -239,7 +253,6 @@ async fn main() {
             }
         });
 
-    // GET /@admin/logs
     let admin_logs = warp::path!("@admin" / "logs")
         .and(warp::get())
         .and(warp::header::optional::<String>("authorization"))
@@ -260,7 +273,6 @@ async fn main() {
             }
         });
 
-    // GET /@admin/status
     let admin_status = warp::path!("@admin" / "status")
         .and(warp::get())
         .and(warp::header::optional::<String>("authorization"))
@@ -282,7 +294,6 @@ async fn main() {
             }
         });
 
-    // POST /@admin/exec - 命令执行
     let admin_exec = warp::path!("@admin" / "exec")
         .and(warp::post())
         .and(warp::header::optional::<String>("authorization"))
@@ -304,8 +315,9 @@ async fn main() {
             }
         });
 
+    // ============================================
     // 3. 组合路由
-
+    // ============================================
     let routes = admin_page
         .or(admin_config_get)
         .or(admin_config_post)

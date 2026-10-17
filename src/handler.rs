@@ -16,6 +16,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use std::process::Command;
 
+/// 认证成功日志标志（只打印一次）
 static AUTH_LOGGED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -27,9 +28,9 @@ struct FileNode {
     modified_time: u64,
 }
 
-/// 日志记录
+/// 日志记录（过滤 favicon.ico / sw.js 404）
 pub async fn log_request(root: &PathBuf, path: &str, status: u16, client_ip: &str) {
-    if path == "favicon.ico" && status == 404 {
+    if (path == "favicon.ico" || path == "sw.js") && status == 404 {
         return;
     }
     let time = Local::now().format("%H:%M:%S");
@@ -61,50 +62,64 @@ pub async fn log_request(root: &PathBuf, path: &str, status: u16, client_ip: &st
     }
 }
 
-/// 目录树生成（支持排序）
+/// ★ 目录树生成（核心修复）
+/// 
+/// 关键点：
+/// - 使用请求传入的 path 拼接相对路径，不依赖 strip_prefix
+/// - 彻底避免符号链接/挂载点/相对路径导致的路径错乱
 fn get_directory_tree(root: &PathBuf, path: &str, config: &Config) -> Result<Vec<FileNode>, String> {
+    // 严格清理路径：去掉首尾斜杠，防止绝对路径注入
+    let path = path.trim_matches('/');
+
     let current_path = if path.is_empty() {
         root.clone()
     } else {
         root.join(path)
     };
+
+    // 安全检查
     if !current_path.starts_with(root) {
         return Err("Access denied".to_string());
     }
     if !current_path.exists() || !current_path.is_dir() {
         return Err(format!("雜鱼，目录不存在: {}", current_path.display()));
     }
+
     let mut nodes = Vec::new();
     let entries = fs::read_dir(&current_path).map_err(|e| e.to_string())?;
+
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
+
+        // 隐藏文件过滤
         if name == "nweb.yml" || name == "nweb.log" {
             continue;
         }
         if !config.show_hidden && name.starts_with('.') {
             continue;
         }
-        let is_dir = path.is_dir();
+
+        let entry_path = entry.path();
+        let is_dir = entry_path.is_dir();
         let size = if is_dir {
             0
         } else {
-            fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+            fs::metadata(&entry_path).map(|m| m.len()).unwrap_or(0)
         };
-        let relative_path = path.strip_prefix(root)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .to_string();
 
-        let modified_time = if let Ok(meta) = fs::metadata(&path) {
-            if let Ok(time) = meta.modified() {
-                time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()
-            } else {
-                0
-            }
+        let modified_time = fs::metadata(&entry_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // ★ 核心修复：使用请求的 path 拼接，确保路径始终是相对路径
+        let relative_path = if path.is_empty() {
+            name.clone()
         } else {
-            0
+            format!("{}/{}", path, name)
         };
 
         nodes.push(FileNode {
@@ -116,38 +131,30 @@ fn get_directory_tree(root: &PathBuf, path: &str, config: &Config) -> Result<Vec
         });
     }
 
+    // 排序（文件夹优先）
     match config.default_sort.as_str() {
         "size" => {
             nodes.sort_by(|a, b| {
-                if a.is_dir && !b.is_dir {
-                    std::cmp::Ordering::Less
-                } else if !a.is_dir && b.is_dir {
-                    std::cmp::Ordering::Greater
-                } else {
-                    a.size.cmp(&b.size)
+                if a.is_dir != b.is_dir {
+                    return if a.is_dir { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
                 }
+                a.size.cmp(&b.size)
             });
         }
         "time" => {
             nodes.sort_by(|a, b| {
-                if a.is_dir && !b.is_dir {
-                    std::cmp::Ordering::Less
-                } else if !a.is_dir && b.is_dir {
-                    std::cmp::Ordering::Greater
-                } else {
-                    b.modified_time.cmp(&a.modified_time)
+                if a.is_dir != b.is_dir {
+                    return if a.is_dir { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
                 }
+                b.modified_time.cmp(&a.modified_time)
             });
         }
         _ => {
             nodes.sort_by(|a, b| {
-                if a.is_dir && !b.is_dir {
-                    std::cmp::Ordering::Less
-                } else if !a.is_dir && b.is_dir {
-                    std::cmp::Ordering::Greater
-                } else {
-                    a.name.cmp(&b.name)
+                if a.is_dir != b.is_dir {
+                    return if a.is_dir { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
                 }
+                a.name.cmp(&b.name)
             });
         }
     }
@@ -155,7 +162,7 @@ fn get_directory_tree(root: &PathBuf, path: &str, config: &Config) -> Result<Vec
     Ok(nodes)
 }
 
-/// 主请求处理
+/// 主请求处理（永不返回 401）
 pub async fn handle_request(
     root: &PathBuf,
     tail: &str,
@@ -179,6 +186,7 @@ pub async fn handle_request(
         root.clone()
     };
 
+    // 隐藏敏感文件
     if tail == "nweb.yml" || tail == "nweb.log" {
         log_request(root, tail, 404, &client_ip).await;
         return Ok(Response::builder()
@@ -186,12 +194,19 @@ pub async fn handle_request(
             .body(b"404 Not Found".to_vec())
             .unwrap());
     }
-    // ========== 使用 effective_root 替代 root ==========
+
+    // ========== API: /api/tree/xxx ==========
     if tail.starts_with("api/tree/") {
         let raw_path = &tail[9..];
         let decoded = decode(raw_path).unwrap_or_else(|_| raw_path.into());
-        let path = decoded.trim_start_matches('/').trim_end_matches('/');
-        match get_directory_tree(&effective_root, path, &config) {
+        // 严格清理路径
+        let path = decoded
+            .trim_start_matches('/')
+            .trim_start_matches("./")
+            .trim_end_matches('/')
+            .to_string();
+
+        match get_directory_tree(&effective_root, &path, &config) {
             Ok(tree) => {
                 let json = serde_json::to_string(&tree).unwrap_or("[]".to_string());
                 log_request(root, &format!("/api/tree/{}", path), 200, &client_ip).await;
@@ -210,11 +225,18 @@ pub async fn handle_request(
             }
         }
     }
+
+    // ========== API: /api/xxx ==========
     if tail.starts_with("api/") {
         let raw_path = &tail[4..];
         let decoded = decode(raw_path).unwrap_or_else(|_| raw_path.into());
-        let path = decoded.trim_start_matches('/').trim_end_matches('/');
-        match get_directory_tree(&effective_root, path, &config) {
+        let path = decoded
+            .trim_start_matches('/')
+            .trim_start_matches("./")
+            .trim_end_matches('/')
+            .to_string();
+
+        match get_directory_tree(&effective_root, &path, &config) {
             Ok(tree) => {
                 let json = serde_json::to_string(&tree).unwrap_or("[]".to_string());
                 log_request(root, &format!("/api/{}", path), 200, &client_ip).await;
@@ -233,6 +255,8 @@ pub async fn handle_request(
             }
         }
     }
+
+    // ========== 根路径：优先 index_file ==========
     if tail.is_empty() {
         let index_path = effective_root.join(&config.index_file);
         if index_path.exists() && index_path.is_file() {
@@ -265,8 +289,16 @@ pub async fn handle_request(
                 .unwrap());
         }
     }
+
+    // ========== 文件下载 ==========
     let decoded_tail = decode(tail).unwrap_or_else(|_| tail.into());
-    let fs_path = effective_root.join(&decoded_tail as &str);
+    // ★ 关键修复：严格清理路径，防止绝对路径
+    let decoded_tail = decoded_tail
+        .trim_start_matches('/')
+        .trim_start_matches("./")
+        .to_string();
+    let fs_path = effective_root.join(&decoded_tail);
+
     if !fs_path.starts_with(&effective_root) {
         log_request(root, &decoded_tail, 403, &client_ip).await;
         return Ok(Response::builder()
@@ -274,11 +306,11 @@ pub async fn handle_request(
             .body("雜鱼，禁止访问".as_bytes().to_vec())
             .unwrap());
     }
+
     if fs_path.is_file() {
         match tokio_fs::read(&fs_path).await {
             Ok(data) => {
-                let mime = mime_guess::from_path(&fs_path)
-                    .first_or_octet_stream();
+                let mime = mime_guess::from_path(&fs_path).first_or_octet_stream();
                 log_request(root, &decoded_tail, 200, &client_ip).await;
                 return Ok(Response::builder()
                     .status(StatusCode::OK)
@@ -295,6 +327,7 @@ pub async fn handle_request(
             }
         }
     }
+
     log_request(root, tail, 404, &client_ip).await;
     Ok(Response::builder()
         .status(StatusCode::NOT_FOUND)
@@ -304,7 +337,7 @@ pub async fn handle_request(
 
 /// ==================== 管理后台 ====================
 
-/// 后台验证 Basic Auth
+/// 验证 Basic Auth（只在管理接口打印日志，成功只打印一次）
 pub async fn is_valid_auth(root: &PathBuf, auth_header: Option<String>, is_admin: bool) -> bool {
     match auth_header {
         Some(header) => {
@@ -326,11 +359,9 @@ pub async fn is_valid_auth(root: &PathBuf, auth_header: Option<String>, is_admin
             }
             let config = load_config(root).unwrap_or_else(Config::default);
             let valid = parts[0] == config.admin_user && parts[1] == config.admin_pass;
-            
-            // 只在管理接口打印日志
+
             if is_admin {
                 if valid {
-                    // 只打印一次认证成功
                     if !AUTH_LOGGED.load(Ordering::Relaxed) {
                         println!("[AUTH] ✅ 认证成功");
                         AUTH_LOGGED.store(true, Ordering::Relaxed);
@@ -356,7 +387,7 @@ pub async fn handle_admin_page(root: PathBuf) -> Result<Response<Vec<u8>>, warp:
         .unwrap())
 }
 
-/// GET /@admin/config - 获取配置
+/// GET /@admin/config
 pub async fn get_admin_config(root: PathBuf) -> Result<Response<Vec<u8>>, warp::Rejection> {
     let config = load_config(&root).unwrap_or_else(Config::default);
     let json = serde_json::to_string(&config).unwrap_or("{}".to_string());
@@ -367,7 +398,7 @@ pub async fn get_admin_config(root: PathBuf) -> Result<Response<Vec<u8>>, warp::
         .unwrap())
 }
 
-/// POST /@admin/config - 更新配置
+/// POST /@admin/config
 pub async fn update_admin_config(
     root: PathBuf,
     body: serde_json::Value,
@@ -384,24 +415,22 @@ pub async fn update_admin_config(
         }
     };
     match save_config(&root, &new_config) {
-        Ok(_) => {
-            match load_config(&root) {
-                Some(_) => {
-                    println!("[ADMIN] ✅ 配置已更新");
-                    Ok(Response::builder()
-                        .status(StatusCode::OK)
-                        .body(b"Config updated successfully".to_vec())
-                        .unwrap())
-                }
-                None => {
-                    println!("[ADMIN] ❌ 配置保存成功但加载失败");
-                    Ok(Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(b"Config saved but load failed".to_vec())
-                        .unwrap())
-                }
+        Ok(_) => match load_config(&root) {
+            Some(_) => {
+                println!("[ADMIN] ✅ 配置已更新");
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(b"Config updated successfully".to_vec())
+                    .unwrap())
             }
-        }
+            None => {
+                println!("[ADMIN] ❌ 配置保存成功但加载失败");
+                Ok(Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(b"Config saved but load failed".to_vec())
+                    .unwrap())
+            }
+        },
         Err(e) => {
             eprintln!("[ADMIN] ❌ 配置更新失败: {}", e);
             Ok(Response::builder()
@@ -412,7 +441,7 @@ pub async fn update_admin_config(
     }
 }
 
-/// GET /@admin/logs - 返回最近 100 行日志
+/// GET /@admin/logs
 pub async fn get_admin_logs(root: PathBuf) -> Result<Response<Vec<u8>>, warp::Rejection> {
     let log_path = root.join("nweb.log");
     if !log_path.exists() {
@@ -450,7 +479,7 @@ pub async fn get_admin_logs(root: PathBuf) -> Result<Response<Vec<u8>>, warp::Re
     }
 }
 
-/// GET /@admin/status - 返回运行状态
+/// GET /@admin/status
 pub async fn get_admin_status(_root: PathBuf, start_time: u64) -> Result<Response<Vec<u8>>, warp::Rejection> {
     let mut sys = System::new();
     sys.refresh_all();
@@ -478,12 +507,11 @@ pub async fn get_admin_status(_root: PathBuf, start_time: u64) -> Result<Respons
         .unwrap())
 }
 
-/// POST /@admin/exec - 执行命令（仅管理员）
+/// POST /@admin/exec - 执行命令
 pub async fn exec_command(
     root: PathBuf,
     body: serde_json::Value,
 ) -> Result<Response<Vec<u8>>, warp::Rejection> {
-    // 解析 JSON 获取命令
     let cmd = match body.get("cmd").and_then(|v| v.as_str()) {
         Some(c) => c.trim(),
         None => {
@@ -501,7 +529,6 @@ pub async fn exec_command(
             .unwrap());
     }
 
-    // 记录日志
     let log_msg = format!("[EXEC] 管理员: {}\n", cmd);
     println!("{}", log_msg.trim());
     let log_path = root.join("nweb.log");
@@ -514,17 +541,12 @@ pub async fn exec_command(
         let _ = file.write_all(log_msg.as_bytes()).await;
     }
 
-    // 异步执行命令（使用 spawn_blocking 避免阻塞）
     let cmd_owned = cmd.to_string();
     let result = tokio::task::spawn_blocking(move || {
         let output = if cfg!(target_os = "windows") {
-            Command::new("cmd")
-                .args(["/C", &cmd_owned])
-                .output()
+            Command::new("cmd").args(["/C", &cmd_owned]).output()
         } else {
-            Command::new("sh")
-                .args(["-c", &cmd_owned])
-                .output()
+            Command::new("sh").args(["-c", &cmd_owned]).output()
         };
 
         match output {
@@ -536,7 +558,9 @@ pub async fn exec_command(
             }
             Err(e) => (-1, String::new(), format!("执行失败: {}", e)),
         }
-    }).await.unwrap_or((-1, String::new(), "任务 panic".to_string()));
+    })
+    .await
+    .unwrap_or((-1, String::new(), "任务 panic".to_string()));
 
     let (exit_code, stdout, stderr) = result;
     let response = json!({
