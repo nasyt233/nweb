@@ -62,6 +62,7 @@ show_file_size: true
 show_admin_btn: true
 clear_log_on_start: true
 home_dir: ""                  # Custom root directory; leave empty to use launch directory
+enable_exec: true
 ```
 
 ## Advanced Usage

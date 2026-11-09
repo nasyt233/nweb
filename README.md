@@ -63,6 +63,7 @@ show_file_size: true
 show_admin_btn: true
 clear_log_on_start: true
 home_dir: ""                  # 临时主页目录，留空使用启动目录
+enable_exec: true
 ```
 
 ## 高级用法
