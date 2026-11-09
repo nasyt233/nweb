@@ -3,209 +3,170 @@ mod handler;
 mod html;
 mod utils;
 
-use clap::Parser;
 use warp::Filter;
-use warp::http::{Response, StatusCode};
-use std::path::PathBuf;
 use std::net::IpAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use config::{ensure_config, load_config, Config};
+use config::{ensure_config, load_config};
 use utils::expand_path;
+use std::collections::HashMap;
+use crate::handler::{admin_delete, admin_files_list, admin_mkdir, admin_upload};
 use handler::{
-    handle_request, is_valid_auth, handle_admin_page, get_admin_config,
-    update_admin_config, get_admin_logs, get_admin_status, exec_command,
+    exec_command, get_admin_config, get_admin_logs, get_admin_status, handle_admin_page,
+    handle_request, is_valid_auth, unauthorized, update_admin_config,
 };
 
-/// nweb - Rust 文件服务器
-#[derive(Parser, Debug)]
-#[command(name = "nweb")]
-#[command(version = "0.7.0")]
-#[command(author = "NAS油条")]
-#[command(about = "一个用 Rust 编写的轻量级文件服务器", long_about = None)]
-#[command(disable_help_flag = true)]
-#[command(disable_version_flag = true)]
-struct Cli {
-    #[arg(short = 'd', long, default_value = "")]
-    dir: String,
-    #[arg(short = 'p', long, default_value_t = 0)]
-    port: u16,
-    #[arg(short = 'H', long, default_value = "0.0.0.0")]
-    host: String,
-    #[arg(short, long)]
-    help: bool,
-    #[arg(short, long)]
-    version: bool,
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn print_help() {
+    println!("nweb v{} - 极简网页文件服务器", VERSION);
+    println!();
+    println!("用法: nweb [选项] [目录] [端口]");
+    println!();
+    println!("选项:");
+    println!("  -d, --dir <目录>    共享目录 (默认: 当前目录)");
+    println!("  -p, --port <端口>   监听端口 (默认: 8080)");
+    println!("  -H, --host <地址>   监听地址 (默认: 0.0.0.0)");
+    println!("  -h, --help          显示帮助");
+    println!("  -v, --version       显示版本");
+    println!();
+    println!("示例:");
+    println!("  nweb -d /data -p 7891 -H 127.0.0.1");
+}
+
+fn fail(msg: &str) -> ! {
+    eprintln!("❌ {}", msg);
+    std::process::exit(1);
 }
 
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = std::env::args().collect();
-
-    if args.len() == 1 {
-        eprintln!("❌ 参数错了，雜鱼🐟");
-        eprintln!("💡 输入 nweb -h 查看帮助");
-        eprintln!("💡 食用方法: nweb <目录> <端口>");
-        eprintln!("💡 示例: nweb ~/文档 7891");
-        eprintln!("💡 如果想使用当前目录，请换成 nweb . <端口>");
-        eprintln!();
-        eprintln!("  也可以使用参数形式:");
-        eprintln!("  nweb -d <目录> -p <端口> -H <主机IP>");
-        eprintln!();
-        eprintln!("  其他选项:");
-        eprintln!("  -h, --help     显示帮助信息");
-        eprintln!("  -v, --version  显示版本号");
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.is_empty() {
+        print_help();
         std::process::exit(1);
     }
-
-    if args.iter().any(|a| a == "-h" || a == "--help") {
-        eprintln!("nweb - Rust 文件服务器 v0.7.0");
-        eprintln!("");
-        eprintln!("用法:");
-        eprintln!("  nweb <目录> <端口>");
-        eprintln!("  nweb [选项]");
-        eprintln!("");
-        eprintln!("选项:");
-        eprintln!("  -d, --dir <DIR>     服务目录路径 (默认: .)");
-        eprintln!("  -p, --port <PORT>   服务端口 (默认: 8080)");
-        eprintln!("  -H, --host <HOST>   绑定主机IP (默认: 0.0.0.0)");
-        eprintln!("  -h, --help          显示帮助信息");
-        eprintln!("  -v, --version       显示版本号");
-        eprintln!("");
-        eprintln!("示例:");
-        eprintln!("  nweb . 7891");
-        eprintln!("  nweb ~/Documents 8080");
-        eprintln!("  nweb -d ~/Documents -p 8080");
-        eprintln!("  nweb -d ~/Documents -p 8080 -H 127.0.0.1");
+    if argv.iter().any(|a| a == "--help" || a == "-h") {
+        print_help();
+        std::process::exit(0);
+    }
+    if argv.iter().any(|a| a == "--version" || a == "-v") {
+        println!("nweb v{}", VERSION);
         std::process::exit(0);
     }
 
-    if args.iter().any(|a| a == "-v" || a == "--version") {
-        eprintln!("nweb v0.7.0");
-        eprintln!("🤓 NAS油条 出品");
-        std::process::exit(0);
-    }
+    let mut dir = String::new();
+    let mut port: u16 = 0;
+    let mut host = String::from("0.0.0.0");
+    let mut positional: Vec<String> = Vec::new();
 
-    let (dir, port, host) = if args.len() == 3 {
-        let dir = args[1].clone();
-        let port = match args[2].parse::<u16>() {
-            Ok(p) => p,
-            Err(_) => {
-                eprintln!("❌ 端口格式错误: {}", args[2]);
-                eprintln!("💡 输入 nweb -h 查看帮助");
-                std::process::exit(1);
+    let mut i = 0;
+    while i < argv.len() {
+        let arg = argv[i].clone();
+        match arg.as_str() {
+            "-d" | "--dir" => {
+                i += 1;
+                dir = match argv.get(i) {
+                    Some(v) => v.clone(),
+                    None => fail("缺少 --dir 参数"),
+                };
             }
-        };
-        (dir, port, "0.0.0.0".to_string())
-    } else {
-        let cli = Cli::parse();
-        if cli.port == 0 && !cli.dir.is_empty() {
-            eprintln!("❌ 参数错了，雜鱼🐟");
-            eprintln!("💡 输入 nweb -h 查看帮助");
-            eprintln!("💡 食用方法: nweb <目录> <端口>");
-            std::process::exit(1);
+            "-p" | "--port" => {
+                i += 1;
+                port = match argv.get(i).and_then(|v| v.parse::<u16>().ok()) {
+                    Some(p) => p,
+                    None => fail("端口格式错误"),
+                };
+            }
+            "-H" | "--host" => {
+                i += 1;
+                host = match argv.get(i) {
+                    Some(v) => v.clone(),
+                    None => fail("缺少 --host 参数"),
+                };
+            }
+            _ => positional.push(arg.clone()),
         }
-        let dir = if cli.dir.is_empty() { ".".to_string() } else { cli.dir };
-        let port = if cli.port == 0 { 8080 } else { cli.port };
-        (dir, port, cli.host)
+        i += 1;
+    }
+
+    if dir.is_empty() {
+        if let Some(first) = positional.first() {
+            dir = first.clone();
+        }
+    }
+    if let Some(second) = positional.get(1) {
+        match second.parse::<u16>() {
+            Ok(value) => {
+                if port == 0 {
+                    port = value;
+                }
+            }
+            Err(_) => fail(&format!("端口格式错误: {}", second)),
+        }
+    }
+    if dir.is_empty() {
+        dir = String::from(".");
+    }
+    if port == 0 {
+        port = 8080;
+    }
+
+    let ip: IpAddr = match host.parse() {
+        Ok(value) => value,
+        Err(_) => fail(&format!("监听地址无效: {}", host)),
     };
 
-    let expanded_dir = expand_path(&dir);
-    let root_dir = PathBuf::from(&expanded_dir);
-    let ip: IpAddr = host.parse().unwrap_or([0, 0, 0, 0].into());
-
-    if !root_dir.exists() || !root_dir.is_dir() {
-        eprintln!("❌ 目录不存在: {}", root_dir.display());
-        std::process::exit(1);
-    }
-
-    // ★ 关键修复：规范化为绝对路径，避免相对路径导致的 strip_prefix 问题
-    let root_dir = match std::fs::canonicalize(&root_dir) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("⚠️  无法规范化路径: {}, 使用原路径", e);
-            root_dir
-        }
+    let root_dir = match std::fs::canonicalize(expand_path(&dir)) {
+        Ok(p) if p.is_dir() => p,
+        Ok(_) => fail(&format!("不是有效目录: {}", dir)),
+        Err(e) => fail(&format!("目录无法访问: {} ({})", dir, e)),
     };
 
     ensure_config(&root_dir);
-    let config = load_config(&root_dir).unwrap_or_else(Config::default);
 
-    // 记录启动时间
-    let start_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    // 清理日志
-    let log_path = root_dir.join("nweb.log");
-    if config.clear_log_on_start {
-        if log_path.exists() {
-            let _ = std::fs::remove_file(&log_path);
+    let cfg = match load_config(&root_dir) {
+        Some(c) => c,
+        None => {
+            eprintln!("❌ 配置文件 nweb.yml 无效或不可读，请修复后重试（不会回退默认口令启动）");
+            std::process::exit(1);
         }
-        let _ = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(&log_path)
-            .await;
+    };
+
+    if cfg.clear_log_on_start {
+        let log_path = root_dir.join("nweb.log");
+        if log_path.exists() {
+            let _ = std::fs::rename(&log_path, root_dir.join("nweb.log.1"));
+        }
     }
 
-    // ============================================
-    // 启动信息
-    // ============================================
-    println!("╔═════════════════════════════════════════╗");
-    println!("║  🦀 nweb - Rust 文件服务器 v0.7.0       ║");
-    println!("║  🤓 NAS油条 出品                        ║");
-    println!("╚═════════════════════════════════════════╝");
-    println!();
-    println!("📁 服务目录: {}", root_dir.display());
-    println!("🌐 访问地址: http://{}:{}", host, port);
-    println!("🔨 管理后台: http://{}:{}/@admin", host, port);
-    println!("📄 日志文件: {}", log_path.display());
-    println!();
-    println!("🔐 管理后台认证信息:");
-    println!("   用户名: {}", config.admin_user);
-    println!("   密码:   {}", config.admin_pass);
-    println!();
-    println!("🐧 问题反馈: QQ群 610699712");
-    println!();
-    println!("💡 按 Ctrl+C 停止服务");
+    let start_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
 
-    // ============================================
-    // 1. 主路由（无认证）
-    // ============================================
-    let main_routes = warp::any()
-        .and(warp::path::tail())
-        .and(warp::path::full())
-        .and(warp::addr::remote())
-        .and_then({
-            let root = root_dir.clone();
-            move |tail: warp::path::Tail,
-                  full: warp::path::FullPath,
-                  remote_addr: Option<std::net::SocketAddr>| {
-                let root = root.clone();
-                async move {
-                    handle_request(&root, tail.as_str(), full.as_str(), remote_addr).await
-                }
-            }
-        });
+    if cfg.admin_user == "nweb" && cfg.admin_pass == "nweb" {
+        println!("⚠️  检测到默认管理员口令 nweb/nweb，请登录后台立即修改");
+    }
+    if cfg.enable_exec {
+        println!("⚠️  命令执行功能已启用 (/@admin/exec)，请确保管理员口令足够强");
+    }
+    if !cfg.home_dir.trim().is_empty() {
+        match std::fs::canonicalize(cfg.home_dir.trim()) {
+            Ok(p) if p.is_dir() => println!("📂 home_dir 生效: {}", p.display()),
+            _ => println!("⚠️  home_dir 无效: {}，将使用 {}", cfg.home_dir, root_dir.display()),
+        }
+    }
 
-    // ============================================
-    // 2. 管理路由（带认证）
-    // ============================================
     let admin_page = warp::path!("@admin")
         .and(warp::get())
         .and(warp::header::optional::<String>("authorization"))
         .and_then({
             let root = root_dir.clone();
-            move |auth_header: Option<String>| {
+            move |auth: Option<String>| {
                 let root = root.clone();
                 async move {
-                    if !is_valid_auth(&root, auth_header, true).await {
-                        return Ok(Response::builder()
-                            .status(StatusCode::UNAUTHORIZED)
-                            .header("WWW-Authenticate", "Basic realm=\"nweb admin\"")
-                            .body(b"Unauthorized".to_vec())
-                            .unwrap());
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
                     }
                     handle_admin_page(root).await
                 }
@@ -217,15 +178,11 @@ async fn main() {
         .and(warp::header::optional::<String>("authorization"))
         .and_then({
             let root = root_dir.clone();
-            move |auth_header: Option<String>| {
+            move |auth: Option<String>| {
                 let root = root.clone();
                 async move {
-                    if !is_valid_auth(&root, auth_header, true).await {
-                        return Ok(Response::builder()
-                            .status(StatusCode::UNAUTHORIZED)
-                            .header("WWW-Authenticate", "Basic realm=\"nweb admin\"")
-                            .body(b"Unauthorized".to_vec())
-                            .unwrap());
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
                     }
                     get_admin_config(root).await
                 }
@@ -238,17 +195,13 @@ async fn main() {
         .and(warp::body::json())
         .and_then({
             let root = root_dir.clone();
-            move |auth_header: Option<String>, body: serde_json::Value| {
+            move |auth: Option<String>, payload: serde_json::Value| {
                 let root = root.clone();
                 async move {
-                    if !is_valid_auth(&root, auth_header, true).await {
-                        return Ok(Response::builder()
-                            .status(StatusCode::UNAUTHORIZED)
-                            .header("WWW-Authenticate", "Basic realm=\"nweb admin\"")
-                            .body(b"Unauthorized".to_vec())
-                            .unwrap());
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
                     }
-                    update_admin_config(root, body).await
+                    update_admin_config(root, payload).await
                 }
             }
         });
@@ -258,15 +211,11 @@ async fn main() {
         .and(warp::header::optional::<String>("authorization"))
         .and_then({
             let root = root_dir.clone();
-            move |auth_header: Option<String>| {
+            move |auth: Option<String>| {
                 let root = root.clone();
                 async move {
-                    if !is_valid_auth(&root, auth_header, true).await {
-                        return Ok(Response::builder()
-                            .status(StatusCode::UNAUTHORIZED)
-                            .header("WWW-Authenticate", "Basic realm=\"nweb admin\"")
-                            .body(b"Unauthorized".to_vec())
-                            .unwrap());
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
                     }
                     get_admin_logs(root).await
                 }
@@ -278,18 +227,13 @@ async fn main() {
         .and(warp::header::optional::<String>("authorization"))
         .and_then({
             let root = root_dir.clone();
-            let start = start_time;
-            move |auth_header: Option<String>| {
+            move |auth: Option<String>| {
                 let root = root.clone();
                 async move {
-                    if !is_valid_auth(&root, auth_header, true).await {
-                        return Ok(Response::builder()
-                            .status(StatusCode::UNAUTHORIZED)
-                            .header("WWW-Authenticate", "Basic realm=\"nweb admin\"")
-                            .body(b"Unauthorized".to_vec())
-                            .unwrap());
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
                     }
-                    get_admin_status(root, start).await
+                    get_admin_status(root, start_time).await
                 }
             }
         });
@@ -300,33 +244,123 @@ async fn main() {
         .and(warp::body::json())
         .and_then({
             let root = root_dir.clone();
-            move |auth_header: Option<String>, body: serde_json::Value| {
+            move |auth: Option<String>, payload: serde_json::Value| {
                 let root = root.clone();
                 async move {
-                    if !is_valid_auth(&root, auth_header, true).await {
-                        return Ok(Response::builder()
-                            .status(StatusCode::UNAUTHORIZED)
-                            .header("WWW-Authenticate", "Basic realm=\"nweb admin\"")
-                            .body(b"Unauthorized".to_vec())
-                            .unwrap());
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
                     }
-                    exec_command(root, body).await
+                    let command = payload
+                        .get("command")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    exec_command(root, command).await
                 }
             }
         });
 
-    // ============================================
-    // 3. 组合路由
-    // ============================================
+    let admin_files_route = warp::path!("@admin" / "files")
+        .and(warp::get())
+        .and(warp::header::optional::<String>("authorization"))
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then({
+            let root = root_dir.clone();
+            move |auth: Option<String>, query: HashMap<String, String>| {
+                let root = root.clone();
+                async move {
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
+                    }
+                    admin_files_list(root, query).await
+                }
+            }
+        });
+
+    let admin_upload_route = warp::path!("@admin" / "upload")
+        .and(warp::post())
+        .and(warp::header::optional::<String>("authorization"))
+        .and(warp::query::<HashMap<String, String>>())
+        .and(warp::body::content_length_limit(268435456))
+        .and(warp::body::bytes())
+        .and_then({
+            let root = root_dir.clone();
+            move |auth: Option<String>,
+                  query: HashMap<String, String>,
+                  data: warp::hyper::body::Bytes| {
+                let root = root.clone();
+                async move {
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
+                    }
+                    admin_upload(root, query, data).await
+                }
+            }
+        });
+
+    let admin_mkdir_route = warp::path!("@admin" / "files" / "mkdir")
+        .and(warp::post())
+        .and(warp::header::optional::<String>("authorization"))
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then({
+            let root = root_dir.clone();
+            move |auth: Option<String>, query: HashMap<String, String>| {
+                let root = root.clone();
+                async move {
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
+                    }
+                    admin_mkdir(root, query).await
+                }
+            }
+        });
+
+    let admin_delete_route = warp::path!("@admin" / "files" / "delete")
+        .and(warp::post())
+        .and(warp::header::optional::<String>("authorization"))
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then({
+            let root = root_dir.clone();
+            move |auth: Option<String>, query: HashMap<String, String>| {
+                let root = root.clone();
+                async move {
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
+                    }
+                    admin_delete(root, query).await
+                }
+            }
+        });
+    let main_routes = warp::path::tail()
+        .and(warp::path::full())
+        .and(warp::addr::remote())
+        .and_then({
+            let root = root_dir.clone();
+            move |tail: warp::path::Tail,
+                  full: warp::path::FullPath,
+                  remote: Option<std::net::SocketAddr>| {
+                let root = root.clone();
+                async move { handle_request(&root, tail.as_str(), full.as_str(), remote).await }
+            }
+        });
+
     let routes = admin_page
         .or(admin_config_get)
         .or(admin_config_post)
         .or(admin_logs)
         .or(admin_status)
         .or(admin_exec)
+        .or(admin_files_route)
+        .or(admin_upload_route)
+        .or(admin_mkdir_route)
+        .or(admin_delete_route)
         .or(main_routes);
 
-    warp::serve(routes)
-        .run((ip, port))
-        .await;
+    println!("🚀 nweb v{} 已启动", VERSION);
+    println!("📍 监听: http://{}:{}", ip, port);
+    println!("📂 共享根目录: {}", root_dir.display());
+    println!("👤 管理后台: /@admin （用户名: {}）", cfg.admin_user);
+    println!("🔐 配置文件: {}", root_dir.join("nweb.yml").display());
+
+    warp::serve(routes).run((ip, port)).await;
 }

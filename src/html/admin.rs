@@ -21,6 +21,7 @@ pub fn generate_admin_html(config: &Config) -> String {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>管理后台 - {}</title>
     <style>
+        :root {{ --adm-opacity: 0.85; --adm-blur: 10px; }}
         * {{ margin:0; padding:0; box-sizing:border-box; }}
         body {{
             font-family:'Segoe UI',Arial,sans-serif;
@@ -32,10 +33,10 @@ pub fn generate_admin_html(config: &Config) -> String {
         .container {{
             max-width:960px;
             margin:0 auto;
-            background: rgba(255,255,255,0.85);
-            border-radius:20px;
-            padding:30px;
-            backdrop-filter: blur(10px);
+            background: rgba(255,255,255,var(--adm-opacity));
+            border-radius:22px;
+            padding:26px 30px;
+            backdrop-filter: blur(var(--adm-blur));
             box-shadow:0 20px 60px rgba(0,0,0,0.3);
             border:1px solid rgba(255,255,255,0.3);
         }}
@@ -131,6 +132,28 @@ pub fn generate_admin_html(config: &Config) -> String {
         hr {{ border:none; border-top:1px solid rgba(102,126,234,0.2); margin:25px 0; }}
         @media (max-width:768px) {{ .container {{ padding:20px; }} .status-grid {{ grid-template-columns:1fr 1fr; }} }}
         @media (max-width:480px) {{ .status-grid {{ grid-template-columns:1fr; }} }}
+        /* ===== 后台布局优化（卡片 + 两列表单） ===== */
+        body {{ padding:24px; }}
+        .nav-links {{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; padding:10px 16px; background:rgba(255,255,255,var(--adm-opacity)); border:1px solid rgba(255,255,255,0.55); border-radius:14px; backdrop-filter:blur(var(--adm-blur)); }}
+        .nav-links a {{ color:#4f46e5; text-decoration:none; font-size:14px; }}
+        .nav-links a:hover {{ text-decoration:underline; }}
+        h1 {{ font-size:26px; margin:4px 0 18px; color:#1f2937; }}
+        h2 {{ font-size:17px; margin:0 0 14px; padding-bottom:10px; border-bottom:1px solid rgba(102,126,234,0.18); color:#1f2937; }}
+        .card {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px 18px; align-content:start; background:rgba(255,255,255,var(--adm-opacity)); backdrop-filter:blur(var(--adm-blur)); border:1px solid rgba(255,255,255,0.55); border-radius:18px; padding:20px 22px; margin-bottom:18px; box-shadow:0 8px 24px rgba(0,0,0,0.08); }}
+        .card > h2, .card > .logs, .card > .exec-area, .card > .save-result, .card > .status-grid, .card > .fm-bar, .card > .fm-list {{ grid-column:1/-1; }}
+        .form-group {{ margin-bottom:0; }}
+        label {{ margin:0 0 6px; font-size:13px; color:#4b5563; font-weight:600; }}
+        input, textarea, select {{ padding:9px 12px; border-radius:10px; }}
+        .btn {{ padding:10px 20px; border-radius:10px; font-size:14px; }}
+        .btn:hover {{ transform:translateY(-1px); box-shadow:0 6px 16px rgba(102,126,234,0.32); }}
+        .logs {{ max-height:280px; overflow:auto; font-size:13px; }}
+        .status-grid {{ gap:12px; }}
+        @media (max-width:640px) {{ body {{ padding:12px; }} .container {{ padding:18px; }} .card {{ grid-template-columns:1fr; }} }}
+        /* ===== 分类导航条 ===== */
+        .tabbar {{ display:flex; gap:8px; flex-wrap:wrap; margin:0 0 18px; padding:8px; background:rgba(255,255,255,var(--adm-opacity)); border:1px solid rgba(255,255,255,0.55); border-radius:14px; backdrop-filter:blur(var(--adm-blur)); }}
+        .tabbtn {{ border:none; cursor:pointer; padding:9px 16px; border-radius:10px; font-size:14px; background:transparent; color:#4b5563; font-family:inherit; }}
+        .tabbtn:hover {{ background:rgba(102,126,234,0.12); color:#4338ca; }}
+        .tabbtn.active {{ background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; box-shadow:0 6px 16px rgba(102,126,234,0.32); }}
     </style>
 </head>
 <body>
@@ -140,7 +163,9 @@ pub fn generate_admin_html(config: &Config) -> String {
             <a href="/@admin" style="font-weight:bold;">⚙️ 管理后台</a>
         </div>
         <h1>⚙️ 管理后台</h1>
+    <div class="tabbar" id="tabbar"></div>
 
+        <section class="card">
         <h2>📊 运行状态</h2>
         <div class="status-grid" id="statusGrid">
             <div class="status-item">
@@ -163,6 +188,8 @@ pub fn generate_admin_html(config: &Config) -> String {
 
         <hr>
 
+        </section>
+        <section class="card">
         <h2>📝 编辑配置</h2>
         <form id="configForm">
             <div class="form-group">
@@ -234,6 +261,8 @@ pub fn generate_admin_html(config: &Config) -> String {
 
         <hr>
 
+        </section>
+        <section class="card">
         <h2>📋 运行日志（最近 100 行）</h2>
         <div class="logs" id="logs">加载中...</div>
         <p style="margin-top:10px;">
@@ -243,6 +272,8 @@ pub fn generate_admin_html(config: &Config) -> String {
 
         <hr>
 
+        </section>
+        <section class="card">
         <h2>💻 命令执行 (仅管理员)</h2>
         <div class="exec-area">
             <div class="form-group" style="display:flex; gap:10px;">
@@ -252,6 +283,7 @@ pub fn generate_admin_html(config: &Config) -> String {
             </div>
             <div id="execResult" class="exec-output">等待执行...</div>
         </div>
+        </section>
     </div>
 
     <script>
@@ -261,11 +293,40 @@ pub fn generate_admin_html(config: &Config) -> String {
         let isConnected = false;
 
         // ========== 加载状态 ==========
+        function buildTabs() {{
+            const cards = Array.prototype.slice.call(document.querySelectorAll(".card"));
+            const bar = document.getElementById("tabbar");
+            if (!cards.length || !bar) return;
+            cards.forEach(function(card, i) {{
+                const h2 = card.querySelector("h2");
+                let label = "";
+                if (h2) {{
+                    const node = (h2.firstChild && h2.firstChild.textContent) ? h2.firstChild : h2;
+                    label = String(node.textContent || "").trim();
+                }}
+                if (!label) label = "标签" + (i + 1);
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "tabbtn" + (i === 0 ? " active" : "");
+                btn.textContent = label;
+                btn.addEventListener("click", function() {{
+                    cards.forEach(function(c, j) {{ c.style.display = (j === i) ? "" : "none"; }});
+                    Array.prototype.forEach.call(bar.children, function(b, j) {{
+                        b.className = "tabbtn" + (j === i ? " active" : "");
+                    }});
+                }});
+                bar.appendChild(btn);
+                if (i > 0) card.style.display = "none";
+            }});
+        }}
         async function loadStatus() {{
             try {{
                 const res = await fetch('/@admin/status');
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
+                data.pid = (data.pid === undefined) ? "-" : data.pid;
+                data.cpu = Number(data.cpu_usage !== undefined ? data.cpu_usage : data.cpu) || 0;
+                data.memory = Number(data.memory) || 0;
                 document.getElementById('pid').textContent = data.pid || '-';
                 document.getElementById('memory').textContent = (data.memory / 1024).toFixed(0) + ' MB' || '- MB';
                 document.getElementById('cpu').textContent = data.cpu.toFixed(1) + ' %' || '- %';
@@ -383,10 +444,10 @@ pub fn generate_admin_html(config: &Config) -> String {
                 const res = await fetch('/@admin/exec', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{ cmd: cmd }}),
+                    body: JSON.stringify({{ command: cmd }}),
                 }});
                 const data = await res.json();
-                let resultText = `退出码: ${{data.exit_code}}\n\n`;
+                let resultText = (data.error ? ("❌ " + data.error) : ("退出码: " + data.code)) + "\n\n";
                 if (data.stdout) resultText += `[stdout]\n${{data.stdout}}\n`;
                 if (data.stderr) resultText += `[stderr]\n${{data.stderr}}\n`;
                 output.textContent = resultText || '(无输出)';
@@ -402,6 +463,7 @@ pub fn generate_admin_html(config: &Config) -> String {
 
         // ========== 页面加载时初始化 ==========
         document.addEventListener('DOMContentLoaded', function() {{
+            buildTabs();
             loadStatus();
             loadLogs();
             loadConfig();

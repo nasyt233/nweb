@@ -793,7 +793,7 @@ pub fn generate_index_html(config: &Config) -> String {
 
                 var ul = document.createElement('ul');
                 ul.className = 'children';
-                ul.id = 'children-' + path.replace(/[^a-zA-Z0-9]/g, '_');
+                ul.id = 'children-' + (++nwebUid);
 
                 var filesInDir = 0;
                 var dirsInDir = 0;
@@ -812,7 +812,7 @@ pub fn generate_index_html(config: &Config) -> String {
                         entryLeft.className = 'entry-left';
                         entryLeft.innerHTML =
                             '<span class=\"icon\">📁</span>' +
-                            '<span class=\"name\">' + node.name + '</span>';
+                            '<span class=\"name\">' + escapeHtml(node.name) + '</span>';
                         entry.appendChild(toggleSpan);
                         entry.appendChild(entryLeft);
 
@@ -824,7 +824,7 @@ pub fn generate_index_html(config: &Config) -> String {
                         var childrenContainer = document.createElement('div');
                         childrenContainer.className = 'children';
                         childrenContainer.style.display = 'none';
-                        childrenContainer.id = 'children-container-' + node.path.replace(/[^a-zA-Z0-9]/g, '_');
+                        childrenContainer.id = 'children-container-' + (++nwebUid);
 
                         entry.onclick = function(e) {{
                             e.stopPropagation();
@@ -837,9 +837,9 @@ pub fn generate_index_html(config: &Config) -> String {
                                 childrenContainer.style.display = 'block';
                                 toggleSpan.className = 'toggle-icon open';
                                 toggleSpan.innerHTML = '▼';
-                                var childId = 'children-' + node.path.replace(/[^a-zA-Z0-9]/g, '_');
-                                if (!document.getElementById(childId)) {{
-                                    loadDirectory(node.path, childrenContainer.id);
+                                var childId = childrenContainer.id;
+                                if (childrenContainer.dataset.loaded === undefined) {{
+                                    childrenContainer.dataset.loaded = 1; loadDirectory(node.path, childrenContainer.id);
                                 }}
                             }}
                         }};
@@ -859,7 +859,7 @@ pub fn generate_index_html(config: &Config) -> String {
                         }}
 
                         if (isImage) {{
-                            var imgPath = '/' + filePath;
+                            var imgPath = '/' + filePath.split('/').map(encodeURIComponent).join('/');
                             entry.href = '#';
                             entry.setAttribute('data-img', imgPath);
                             (function(path) {{
@@ -872,17 +872,17 @@ pub fn generate_index_html(config: &Config) -> String {
                             entry.innerHTML =
                                 '<span class=\"entry-left\">' +
                                 '<span class=\"icon\">' + getFileIcon(node.name) + '</span>' +
-                                '<span class=\"name\">' + node.name + '</span>' +
+                                '<span class=\"name\">' + escapeHtml(node.name) + '</span>' +
                                 '</span>' +
                                 sizeHtml +
                                 '<span class=\"file-info\" style=\"color:#667eea;\">🖼️ 预览</span>';
                         }} else {{
-                            entry.href = '/' + filePath;
+                            entry.href = '/' + filePath.split('/').map(encodeURIComponent).join('/');
                             entry.target = '_blank';
                             entry.innerHTML =
                                 '<span class=\"entry-left\">' +
                                 '<span class=\"icon\">' + getFileIcon(node.name) + '</span>' +
-                                '<span class=\"name\">' + node.name + '</span>' +
+                                '<span class=\"name\">' + escapeHtml(node.name) + '</span>' +
                                 '</span>' +
                                 sizeHtml;
                         }}
@@ -965,6 +965,11 @@ pub fn generate_index_html(config: &Config) -> String {
                 icons[j].innerHTML = '▶';
             }}
         }}
+
+        function escapeHtml(text) {{
+            return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }}
+        var nwebUid = 0;
     </script>
 </body>
 </html>"#,

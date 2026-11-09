@@ -6,6 +6,8 @@ bin-release/
 /target
 # Other files and folders
 .settings/
+nweb.yml
+nweb.log
 Cargo.lock
 # Executables
 *.swf

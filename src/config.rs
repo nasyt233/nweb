@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::SystemTime;
+
+static CACHE: OnceLock<Mutex<HashMap<PathBuf, (SystemTime, Config)>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -32,19 +37,21 @@ pub struct Config {
     pub clear_log_on_start: bool,
     #[serde(default)]
     pub home_dir: String,
+    #[serde(default)]
+    pub enable_exec: bool,
 }
 
 fn default_index_file() -> String {
-    "index.html".to_string()
+    String::from("index.html")
 }
 fn default_admin_user() -> String {
-    "nweb".to_string()
+    String::from("nweb")
 }
 fn default_admin_pass() -> String {
-    "nweb".to_string()
+    String::from("nweb")
 }
 fn default_default_sort() -> String {
-    "name".to_string()
+    String::from("name")
 }
 fn default_show_file_size() -> bool {
     true
@@ -53,73 +60,118 @@ fn default_show_admin_btn() -> bool {
     true
 }
 fn default_clear_log() -> bool {
-    true
+    false
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            title: "nweb".to_string(),
-            description: "本网页由 nweb 自动生成".to_string(),
-            background_api: "https://www.loliapi.com/acg/".to_string(),
+        Config {
+            title: String::from("nweb"),
+            description: String::from("本网页由 nweb 自动生成"),
+            background_api: String::from("https://www.loliapi.com/acg/"),
             opacity: 0.3,
-            blur: "5px".to_string(),
+            blur: String::from("5px"),
             show_hidden: false,
-            index_file: "index.html".to_string(),
-            admin_user: "nweb".to_string(),
-            admin_pass: "nweb".to_string(),
-            default_sort: "name".to_string(),
-            show_file_size: true,
-            show_admin_btn: true,
-            clear_log_on_start: true,
-            home_dir: "".to_string(),
+            index_file: default_index_file(),
+            admin_user: default_admin_user(),
+            admin_pass: default_admin_pass(),
+            default_sort: default_default_sort(),
+            show_file_size: default_show_file_size(),
+            show_admin_btn: default_show_admin_btn(),
+            clear_log_on_start: default_clear_log(),
+            home_dir: String::new(),
+            enable_exec: false,
         }
     }
 }
 
+fn random_password() -> String {
+    const CHARS: &[u8] = b"abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let mut buf = [0u8; 16];
+    if let Ok(mut f) = fs::File::open("/dev/urandom") {
+        use std::io::Read;
+        let _ = f.read_exact(&mut buf);
+    }
+    buf.iter().map(|b| CHARS[(*b as usize) % CHARS.len()] as char).collect()
+}
+
 pub fn ensure_config(root: &PathBuf) {
     let config_path = root.join("nweb.yml");
-    if !config_path.exists() {
-        let default_config = Config::default();
-        match save_config(root, &default_config) {
-            Ok(_) => println!("✅ 默认配置文件: {}", config_path.display()),
-            Err(e) => eprintln!("⚠️  无法写入配置文件: {}", e),
+    if config_path.exists() {
+        return;
+    }
+    let mut generated = Config::default();
+    generated.admin_pass = random_password();
+    match save_config(root, &generated) {
+        Ok(_) => {
+            println!("✅ 已生成配置文件: {}", config_path.display());
+            println!("🔑 初始管理员口令: {} （请登录 /@admin 后修改）", generated.admin_pass);
         }
+        Err(e) => eprintln!("⚠️  无法写入配置文件: {}", e),
+    }
+}
+
+fn invalidate(config_path: &PathBuf) {
+    if let Ok(mut guard) = CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+        guard.remove(config_path);
     }
 }
 
 pub fn load_config(root: &PathBuf) -> Option<Config> {
     let config_path = root.join("nweb.yml");
-    if config_path.exists() {
-        match fs::read_to_string(&config_path) {
-            Ok(content) => {
-                match serde_yaml::from_str::<Config>(&content) {
-                    Ok(cfg) => {
-                        if cfg.title.is_empty() {
-                            eprintln!("⚠️  title 为空，使用默认配置");
-                            return None;
-                        }
-                        return Some(cfg);
-                    }
-                    Err(e) => {
-                        eprintln!("⚠️  配置文件解析失败: {}", e);
-                        return None;
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("⚠️  读取配置文件失败: {}", e);
-                return None;
+    let meta = fs::metadata(&config_path).ok()?;
+    let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+
+    if let Ok(guard) = CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+        if let Some((cached_mtime, cached)) = guard.get(&config_path) {
+            if *cached_mtime == mtime {
+                return Some(cached.clone());
             }
         }
     }
-    None
+
+    let content = match fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("⚠️  读取配置文件失败: {}", e);
+            return None;
+        }
+    };
+    let cfg: Config = match serde_yaml::from_str(&content) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("⚠️  配置文件解析失败: {}", e);
+            return None;
+        }
+    };
+
+    if let Ok(mut guard) = CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+        guard.insert(config_path, (mtime, cfg.clone()));
+    }
+    Some(cfg)
+}
+
+pub fn validate(config: &Config) -> Result<(), String> {
+    if config.admin_user.trim().is_empty() {
+        return Err(String::from("管理员用户名不能为空"));
+    }
+    if config.admin_pass.is_empty() {
+        return Err(String::from("管理员密码不能为空"));
+    }
+    if config.admin_pass == "nweb" {
+        return Err(String::from("管理员密码不能使用默认的 nweb"));
+    }
+    Ok(())
 }
 
 pub fn save_config(root: &PathBuf, config: &Config) -> Result<(), String> {
+    validate(config)?;
     let config_path = root.join("nweb.yml");
     let yaml = serde_yaml::to_string(config).map_err(|e| format!("序列化失败: {}", e))?;
-    fs::write(&config_path, yaml).map_err(|e| format!("写入配置文件失败: {}", e))?;
+    let tmp_path = root.join("nweb.yml.tmp");
+    fs::write(&tmp_path, yaml).map_err(|e| format!("写入配置文件失败: {}", e))?;
+    fs::rename(&tmp_path, &config_path).map_err(|e| format!("保存配置文件失败: {}", e))?;
+    invalidate(&config_path);
     println!("✅ 配置已保存: {}", config_path.display());
     Ok(())
 }

@@ -1,14 +1,15 @@
 title: nweb
 description: 本网页由 nweb 自动生成
-background_api: https://www.loliapi.com/acg/
+background_api: ''
 opacity: 0.3
 blur: 5px
-show_hidden: true
+show_hidden: false
 index_file: index.html
 admin_user: nweb
-admin_pass: nweb
+admin_pass: 3f9LzDUAuMpxQHJu
 default_sort: name
 show_file_size: true
 show_admin_btn: true
-clear_log_on_start: true
-home_dir: /data/data/com.termux/files/home/
+clear_log_on_start: false
+home_dir: ''
+enable_exec: false

@@ -1,9 +1,9 @@
 [package]
 name = "nweb"
-authors = ["nasyt", "NAS油条",]
-version = "0.7.0"
+authors = ["nasyt",]
+version = "0.8.0"
 edition = "2021"
-description = "A lightweight and high-performance static Web service built with Rust language nweb"
+description = "A minimalist file browser written in Rust-no configuration, out of the box. 一个用 Rust 编写的极简文件浏览器 —— 无需配置，开箱即用。"
 readme = "README.md"
 homepage = "https://nasyt.hoha.top"
 repository = "https://github.com/nasyt233/nweb"
