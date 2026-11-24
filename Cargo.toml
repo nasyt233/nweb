@@ -1,7 +1,7 @@
 [package]
 name = "nweb"
 authors = ["nasyt",]
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 description = "A minimalist file browser written in Rust-no configuration, out of the box. 一个用 Rust 编写的极简文件浏览器 —— 无需配置，开箱即用。"
 readme = "README.md"

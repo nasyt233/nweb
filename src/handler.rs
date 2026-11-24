@@ -1,23 +1,24 @@
-use warp::http::{Response, StatusCode};
-use warp::hyper::body::{Body, Bytes};
-use std::path::{Component, Path, PathBuf};
-use std::fs;
-use urlencoding::decode;
-use chrono::Local;
-use tokio::fs as tokio_fs;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use serde_json::json;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Mutex;
-use crate::config::{Config, load_config, save_config};
-use crate::html::home::generate_index_html;
+use crate::config::{load_config, save_config, Config};
 use crate::html::admin::generate_admin_html;
-use sysinfo::{Pid, System};
+use crate::html::home::generate_index_html;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use std::process::Command;
+use chrono::Local;
+use serde_json::json;
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Mutex;
+use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
+use sysinfo::{Pid, System};
+use tokio::fs as tokio_fs;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::process::Command;
+use urlencoding::decode;
+use warp::http::{Response, StatusCode};
+use warp::hyper::body::{Body, Bytes};
 
 pub type ApiResponse = Response<Body>;
 
@@ -48,15 +49,27 @@ fn build_response(status: StatusCode, content_type: Option<&str>, body: Bytes) -
 }
 
 pub fn text(status: StatusCode, body: String) -> ApiResponse {
-    build_response(status, Some("text/plain; charset=utf-8"), Bytes::from(body.into_bytes()))
+    build_response(
+        status,
+        Some("text/plain; charset=utf-8"),
+        Bytes::from(body.into_bytes()),
+    )
 }
 
 pub fn html(status: StatusCode, body: String) -> ApiResponse {
-    build_response(status, Some("text/html; charset=utf-8"), Bytes::from(body.into_bytes()))
+    build_response(
+        status,
+        Some("text/html; charset=utf-8"),
+        Bytes::from(body.into_bytes()),
+    )
 }
 
 pub fn json_bytes(body: String) -> ApiResponse {
-    build_response(StatusCode::OK, Some("application/json; charset=utf-8"), Bytes::from(body.into_bytes()))
+    build_response(
+        StatusCode::OK,
+        Some("application/json; charset=utf-8"),
+        Bytes::from(body.into_bytes()),
+    )
 }
 
 pub fn unauthorized() -> ApiResponse {
@@ -161,7 +174,11 @@ fn get_directory_tree(root: &Path, path: &str, config: &Config) -> Result<Vec<Fi
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         let lowered = name.to_lowercase();
-        if lowered == "nweb.yml" || lowered == "nweb.yml.tmp" || lowered == "nweb.log" || lowered == "nweb.log.1" {
+        if lowered == "nweb.yml"
+            || lowered == "nweb.yml.tmp"
+            || lowered == "nweb.log"
+            || lowered == "nweb.log.1"
+        {
             continue;
         }
         if !config.show_hidden && name.starts_with(".") {
@@ -190,10 +207,26 @@ fn get_directory_tree(root: &Path, path: &str, config: &Config) -> Result<Vec<Fi
             modified_time,
         });
     }
-    nodes.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    nodes.sort_by(|a, b| {
+        let kind_order = match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => std::cmp::Ordering::Equal,
+        };
+        if kind_order != std::cmp::Ordering::Equal {
+            return kind_order;
+        }
+        match config.default_sort.as_str() {
+            "size" => b
+                .size
+                .cmp(&a.size)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+            "time" => b
+                .modified_time
+                .cmp(&a.modified_time)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        }
     });
     Ok(nodes)
 }
@@ -207,7 +240,11 @@ fn stream_file(path: PathBuf) -> Body {
                 match file.read(&mut buffer).await {
                     Ok(0) => break,
                     Ok(n) => {
-                        if sender.send_data(Bytes::copy_from_slice(&buffer[..n])).await.is_err() {
+                        if sender
+                            .send_data(Bytes::copy_from_slice(&buffer[..n]))
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -312,21 +349,7 @@ pub async fn is_valid_auth(root: &PathBuf, auth_header: Option<String>, is_admin
 // ================= 后台文件管理（仅登录后可用） =================
 
 fn sanitize_css_len(raw: &str) -> String {
-    let cleaned: String = raw
-        .chars()
-        .filter(|c| {
-            c.is_ascii_digit()
-                || c.is_ascii_alphabetic()
-                || *c == char::from(46u8)
-                || *c == char::from(37u8)
-        })
-        .take(12)
-        .collect();
-    if cleaned.is_empty() {
-        String::from("0px")
-    } else {
-        cleaned
-    }
+    crate::html::home::safe_css_length(raw)
 }
 fn admin_base(root: &PathBuf) -> PathBuf {
     match load_config(root) {
@@ -437,6 +460,157 @@ pub async fn admin_files_list(
     ))
 }
 
+fn is_editable_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|v| v.to_str())
+        .map(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "txt"
+                    | "md"
+                    | "markdown"
+                    | "json"
+                    | "yaml"
+                    | "yml"
+                    | "toml"
+                    | "html"
+                    | "htm"
+                    | "css"
+                    | "js"
+                    | "ts"
+                    | "rs"
+                    | "py"
+                    | "sh"
+                    | "xml"
+                    | "env"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// 读取后台文本编辑器内容。
+pub async fn admin_read_file(
+    root: PathBuf,
+    query: HashMap<String, String>,
+) -> Result<ApiResponse, warp::Rejection> {
+    let base = admin_base(&root);
+    let rel = clean_rel(query.get("path").map(String::as_str).unwrap_or(""));
+    if rel.is_empty() || is_sensitive(&rel) {
+        return Ok(json_bytes(json!({"error": "该文件不可编辑"}).to_string()));
+    }
+    let path = match resolve_inside(&base, &rel) {
+        Ok(path) if path.is_file() => path,
+        _ => return Ok(json_bytes(json!({"error": "文件不存在"}).to_string())),
+    };
+    if !is_editable_file(&path) {
+        return Ok(json_bytes(
+            json!({"error": "仅支持常见文本文件编辑"}).to_string(),
+        ));
+    }
+    let metadata = match tokio_fs::metadata(&path).await {
+        Ok(metadata) => metadata,
+        Err(_) => return Ok(json_bytes(json!({"error": "文件不可读"}).to_string())),
+    };
+    if metadata.len() > 2 * 1024 * 1024 {
+        return Ok(json_bytes(
+            json!({"error": "文件超过 2 MiB，不能在线编辑"}).to_string(),
+        ));
+    }
+    match tokio_fs::read_to_string(&path).await {
+        Ok(content) => Ok(json_bytes(
+            json!({"path": rel, "content": content}).to_string(),
+        )),
+        Err(_) => Ok(json_bytes(
+            json!({"error": "文件不是有效 UTF-8 文本"}).to_string(),
+        )),
+    }
+}
+
+/// 保存后台文本编辑器内容。
+pub async fn admin_write_file(
+    root: PathBuf,
+    query: HashMap<String, String>,
+    body: serde_json::Value,
+) -> Result<ApiResponse, warp::Rejection> {
+    let base = admin_base(&root);
+    let rel = clean_rel(query.get("path").map(String::as_str).unwrap_or(""));
+    let content = body
+        .get("content")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if rel.is_empty() || is_sensitive(&rel) {
+        return Ok(json_bytes(json!({"error": "该文件不可编辑"}).to_string()));
+    }
+    let path = match resolve_inside(&base, &rel) {
+        Ok(path) if path.is_file() => path,
+        _ => return Ok(json_bytes(json!({"error": "文件不存在"}).to_string())),
+    };
+    if !is_editable_file(&path) {
+        return Ok(json_bytes(
+            json!({"error": "仅支持常见文本文件编辑"}).to_string(),
+        ));
+    }
+    if content.len() > 2 * 1024 * 1024 {
+        return Ok(json_bytes(
+            json!({"error": "文件超过 2 MiB，不能在线编辑"}).to_string(),
+        ));
+    }
+    match tokio_fs::write(&path, content.as_bytes()).await {
+        Ok(_) => {
+            println!("[FILES] ✎ 保存 {} ({} 字节)", path.display(), content.len());
+            Ok(json_bytes(
+                json!({"status": "success", "size": content.len()}).to_string(),
+            ))
+        }
+        Err(error) => Ok(json_bytes(
+            json!({"error": format!("保存失败: {}", error)}).to_string(),
+        )),
+    }
+}
+
+/// 重命名文件或目录。
+pub async fn admin_rename(
+    root: PathBuf,
+    query: HashMap<String, String>,
+) -> Result<ApiResponse, warp::Rejection> {
+    let base = admin_base(&root);
+    let rel = clean_rel(query.get("path").map(String::as_str).unwrap_or(""));
+    let name = query.get("name").cloned().unwrap_or_default();
+    if rel.is_empty() || is_sensitive(&rel) || !valid_name(&name) {
+        return Ok(json_bytes(
+            json!({"error": "路径或新名称不合法"}).to_string(),
+        ));
+    }
+    let source = match resolve_inside(&base, &rel) {
+        Ok(path) => path,
+        Err(_) => return Ok(json_bytes(json!({"error": "文件不存在"}).to_string())),
+    };
+    let parent = match source.parent() {
+        Some(parent) => parent,
+        None => return Ok(json_bytes(json!({"error": "不能重命名根目录"}).to_string())),
+    };
+    let target = parent.join(&name);
+    if target.exists()
+        || is_sensitive(&format!(
+            "{}/{}",
+            clean_rel(rel.rsplit_once('/').map(|v| v.0).unwrap_or("")),
+            name
+        ))
+    {
+        return Ok(json_bytes(
+            json!({"error": "目标名称已存在或受保护"}).to_string(),
+        ));
+    }
+    match tokio_fs::rename(&source, &target).await {
+        Ok(_) => Ok(json_bytes(
+            json!({"status": "success", "name": name}).to_string(),
+        )),
+        Err(error) => Ok(json_bytes(
+            json!({"error": format!("重命名失败: {}", error)}).to_string(),
+        )),
+    }
+}
+
 /// 上传文件（请求体为文件内容，文件名走 query）
 pub async fn admin_upload(
     root: PathBuf,
@@ -518,7 +692,9 @@ pub async fn admin_mkdir(
     match fs::create_dir(&target) {
         Ok(_) => {
             println!("[FILES] 📁 新建文件夹 {}", target.display());
-            Ok(json_bytes(json!({"status": "success", "name": name}).to_string()))
+            Ok(json_bytes(
+                json!({"status": "success", "name": name}).to_string(),
+            ))
         }
         Err(e) => Ok(json_bytes(
             json!({"error": format!("创建失败: {}", e)}).to_string(),
@@ -588,11 +764,6 @@ pub async fn handle_request(
 
     let base = effective_root(root, &config);
 
-    if is_sensitive(tail) {
-        log_request(root, tail, 404, &client_ip).await;
-        return Ok(text(StatusCode::NOT_FOUND, String::from("404 Not Found")));
-    }
-
     let api_rel = if let Some(r) = tail.strip_prefix("api/tree/") {
         Some(r)
     } else if let Some(r) = tail.strip_prefix("api/") {
@@ -603,6 +774,10 @@ pub async fn handle_request(
     if let Some(raw) = api_rel {
         let rel = decode_path(raw);
         let rel_clean = rel.trim_start_matches("/").to_string();
+        if is_sensitive(&rel_clean) {
+            log_request(root, tail, 404, &client_ip).await;
+            return Ok(text(StatusCode::NOT_FOUND, String::from("404 Not Found")));
+        }
         match get_directory_tree(&base, &rel_clean, &config) {
             Ok(tree) => {
                 log_request(root, tail, 200, &client_ip).await;
@@ -623,7 +798,10 @@ pub async fn handle_request(
                 if index_path.is_file() {
                     if let Ok(content) = tokio_fs::read(&index_path).await {
                         log_request(root, tail, 200, &client_ip).await;
-                        return Ok(html(StatusCode::OK, String::from_utf8_lossy(&content).to_string()));
+                        return Ok(html(
+                            StatusCode::OK,
+                            String::from_utf8_lossy(&content).to_string(),
+                        ));
                     }
                 }
             }
@@ -634,6 +812,10 @@ pub async fn handle_request(
 
     let rel = decode_path(tail);
     let rel_clean = rel.trim_start_matches("/").to_string();
+    if is_sensitive(&rel_clean) {
+        log_request(root, tail, 404, &client_ip).await;
+        return Ok(text(StatusCode::NOT_FOUND, String::from("404 Not Found")));
+    }
     match resolve_inside(&base, &rel_clean) {
         Ok(fs_path) => {
             if fs_path.is_file() {
@@ -643,7 +825,10 @@ pub async fn handle_request(
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
-                let disposition = format!("inline; filename*=UTF-8{}", urlencoding::encode(&file_name));
+                let disposition = format!(
+                    "inline; filename*=UTF-8''{}",
+                    urlencoding::encode(&file_name)
+                );
                 log_request(root, tail, 200, &client_ip).await;
                 let body = stream_file(fs_path);
                 return Ok(Response::builder()
@@ -687,7 +872,10 @@ pub async fn handle_admin_page(root: PathBuf) -> Result<ApiResponse, warp::Rejec
             }
             Ok(html(StatusCode::OK, page))
         }
-        None => Ok(text(StatusCode::INTERNAL_SERVER_ERROR, String::from("配置读取失败"))),
+        None => Ok(text(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            String::from("配置读取失败"),
+        )),
     }
 }
 
@@ -697,7 +885,10 @@ pub async fn get_admin_config(root: PathBuf) -> Result<ApiResponse, warp::Reject
             let body = serde_json::to_string(&config).unwrap_or_else(|_| String::from("{}"));
             Ok(json_bytes(body))
         }
-        None => Ok(text(StatusCode::INTERNAL_SERVER_ERROR, String::from("配置读取失败"))),
+        None => Ok(text(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            String::from("配置读取失败"),
+        )),
     }
 }
 
@@ -715,7 +906,9 @@ pub async fn update_admin_config(
     let new_config: Config = match serde_json::from_value(merged) {
         Ok(c) => c,
         Err(e) => {
-            return Ok(json_bytes(json!({"error": format!("配置格式错误: {}", e)}).to_string()))
+            return Ok(json_bytes(
+                json!({"error": format!("配置格式错误: {}", e)}).to_string(),
+            ))
         }
     };
     match save_config(&root, &new_config) {
@@ -733,13 +926,20 @@ pub async fn get_admin_logs(root: PathBuf) -> Result<ApiResponse, warp::Rejectio
         Err(_) => String::new(),
     };
     let lines: Vec<&str> = content.lines().collect();
-    let start = if lines.len() > 200 { lines.len() - 200 } else { 0 };
+    let start = if lines.len() > 200 {
+        lines.len() - 200
+    } else {
+        0
+    };
     let sep = char::from(10u8).to_string();
     let recent = lines[start..].join(&sep);
     Ok(json_bytes(json!({ "logs": recent }).to_string()))
 }
 
-pub async fn get_admin_status(_root: PathBuf, start_time: u64) -> Result<ApiResponse, warp::Rejection> {
+pub async fn get_admin_status(
+    _root: PathBuf,
+    start_time: u64,
+) -> Result<ApiResponse, warp::Rejection> {
     let pid = Pid::from_u32(std::process::id());
     let (memory, cpu) = {
         let mut guard = match SYS.lock() {
@@ -753,7 +953,12 @@ pub async fn get_admin_status(_root: PathBuf, start_time: u64) -> Result<ApiResp
         }
         let sys = match guard.as_mut() {
             Some(s) => s,
-            None => return Ok(text(StatusCode::INTERNAL_SERVER_ERROR, String::from("状态不可用"))),
+            None => {
+                return Ok(text(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    String::from("状态不可用"),
+                ))
+            }
         };
         sys.refresh_process(pid);
         let mut mem = 0u64;
@@ -788,14 +993,14 @@ pub async fn exec_command(root: PathBuf, command: String) -> Result<ApiResponse,
     if !config.enable_exec {
         println!("[EXEC] ⛔ 命令执行功能未启用，已拒绝: {}", command);
         return Ok(json_bytes(
-            json!({"error": "命令执行功能未启用，请在 nweb.yml 中设置 enable_exec: true"}).to_string(),
+            json!({"error": "命令执行功能未启用，请在 nweb.yml 中设置 enable_exec: true"})
+                .to_string(),
         ));
     }
     println!("[EXEC] ▶ {}", command);
-    let result = tokio::task::spawn_blocking(move || {
-        Command::new("sh").arg("-c").arg(&command).output()
-    })
-    .await;
+    let mut child_command = Command::new("sh");
+    child_command.arg("-c").arg(&command).kill_on_drop(true);
+    let result = tokio::time::timeout(Duration::from_secs(60), child_command.output()).await;
     match result {
         Ok(Ok(out)) => {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();

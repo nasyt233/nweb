@@ -12,6 +12,8 @@ A minimal file browser written in Rust — zero configuration, ready to run out 
 - 🌙 Built-in dark mode for eye protection
 - 📋 Access logging: record request path, status code, visitor IP address
 - 🔐 Admin dashboard: edit config online, view runtime status and access logs, File Management, Run commands, etc.
+- 🗂️ Admin file manager: search, sort, batch delete, rename, download, and edit text files online
+- 🛡️ Hardened security: sensitive-file protection, same-origin checks for admin actions, command execution timeout
 - 🔒 Sensitive file hiding: `nweb.yml` and `nweb.log` are hidden from file lists
 - 💾 Universal file download: support for all MIME types
 - ⚡ Lightning fast response: only scan current directory, load content on demand
@@ -98,6 +100,16 @@ Sample log output:
 [22:18:10] ✓ 200 192.168.1.100 /api/tree/
 [22:19:00] ✓ 200 192.168.1.100 /api/tree/target
 ```
+
+## Changelog
+### v0.9.0
+- Added in-directory search, type filter, sorting and breadcrumb navigation on the home page
+- Added admin file editing, rename, batch delete, download and an upload-overwrite toggle
+- Improved admin file manager layout and mobile responsiveness
+- Fixed the `default_sort` config being ignored
+- Fixed sensitive-file protection being bypassable via URL encoding
+- Fixed config values being injected into page styles
+- Added same-origin checks for admin actions and a command execution timeout
 
 ## License
 MIT License

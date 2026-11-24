@@ -92,7 +92,9 @@ fn random_password() -> String {
         use std::io::Read;
         let _ = f.read_exact(&mut buf);
     }
-    buf.iter().map(|b| CHARS[(*b as usize) % CHARS.len()] as char).collect()
+    buf.iter()
+        .map(|b| CHARS[(*b as usize) % CHARS.len()] as char)
+        .collect()
 }
 
 pub fn ensure_config(root: &PathBuf) {
@@ -105,7 +107,10 @@ pub fn ensure_config(root: &PathBuf) {
     match save_config(root, &generated) {
         Ok(_) => {
             println!("✅ 已生成配置文件: {}", config_path.display());
-            println!("🔑 初始管理员口令: {} （请登录 /@admin 后修改）", generated.admin_pass);
+            println!(
+                "🔑 初始管理员口令: {} （请登录 /@admin 后修改）",
+                generated.admin_pass
+            );
         }
         Err(e) => eprintln!("⚠️  无法写入配置文件: {}", e),
     }
@@ -160,6 +165,21 @@ pub fn validate(config: &Config) -> Result<(), String> {
     }
     if config.admin_pass == "nweb" {
         return Err(String::from("管理员密码不能使用默认的 nweb"));
+    }
+    if !config.opacity.is_finite() || !(0.0..=1.0).contains(&config.opacity) {
+        return Err(String::from("透明度必须在 0.0 到 1.0 之间"));
+    }
+    if !matches!(config.default_sort.as_str(), "name" | "size" | "time") {
+        return Err(String::from("默认排序只能是 name、size 或 time"));
+    }
+    if config.index_file.trim().is_empty()
+        || config.index_file.contains('/')
+        || config.index_file.contains('\\')
+    {
+        return Err(String::from("首页文件名必须是单个文件名"));
+    }
+    if config.blur != crate::html::home::safe_css_length(&config.blur) {
+        return Err(String::from("模糊程度格式无效，仅支持数字 px 或百分比"));
     }
     Ok(())
 }

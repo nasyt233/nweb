@@ -9,19 +9,54 @@ pub fn html_escape(s: &str) -> String {
         .replace("'", "&#x27;")
 }
 
+/// Only allow network URLs in CSS background declarations.
+pub fn safe_background_url(raw: &str) -> String {
+    let value = raw.trim();
+    let valid_scheme = value.starts_with("https://") || value.starts_with("http://");
+    let safe_chars = !value
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '\'' | '"' | '(' | ')' | '<' | '>'));
+    if valid_scheme && safe_chars {
+        html_escape(value)
+    } else {
+        String::new()
+    }
+}
+
+/// Keep CSS length values constrained to a small, predictable grammar.
+pub fn safe_css_length(raw: &str) -> String {
+    let value = raw.trim();
+    let valid = !value.is_empty()
+        && value.len() <= 12
+        && value
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == 'p' || c == 'x' || c == '%')
+        && value.chars().any(|c| c.is_ascii_digit())
+        && (value.ends_with("px") || value.ends_with('%'));
+    if valid {
+        value.to_string()
+    } else {
+        String::from("0px")
+    }
+}
+
 /// 生成主页面 HTML
 pub fn generate_index_html(config: &Config) -> String {
     let title = html_escape(&config.title);
     let description = html_escape(&config.description);
-    let bg_api = &config.background_api;
-    let opacity = config.opacity;
-    let blur = &config.blur;
+    let bg_api = safe_background_url(&config.background_api);
+    let opacity = config.opacity.clamp(0.0, 1.0);
+    let blur = safe_css_length(&config.blur);
     let admin_btn_style = if config.show_admin_btn {
         "display:inline-block;"
     } else {
         "display:none;"
     };
-    let show_file_size_js = if config.show_file_size { "true" } else { "false" };
+    let show_file_size_js = if config.show_file_size {
+        "true"
+    } else {
+        "false"
+    };
 
     format!(
         r#"<!DOCTYPE html>
@@ -156,6 +191,13 @@ pub fn generate_index_html(config: &Config) -> String {
             transition: background 0.3s, color 0.3s, border-color 0.3s;
         }}
         .stats-item .num {{ font-weight:700; color:#667eea; transition: color 0.3s; }}
+        .toolbar {{ display:flex; gap:10px; flex-wrap:wrap; margin:0 0 16px; align-items:center; }}
+        .toolbar input, .toolbar select {{ padding:9px 12px; border:1px solid rgba(102,126,234,0.25); border-radius:10px; background:rgba(255,255,255,0.72); color:#333; font:inherit; }}
+        .toolbar input {{ flex:1; min-width:180px; }}
+        .toolbar select {{ min-width:130px; }}
+        .breadcrumb {{ display:flex; gap:5px; align-items:center; flex-wrap:wrap; margin:0 0 12px; color:#667eea; font-size:13px; }}
+        .breadcrumb button {{ border:0; background:none; color:#667eea; cursor:pointer; padding:3px 5px; font:inherit; }}
+        .breadcrumb button:hover {{ text-decoration:underline; }}
         .file-tree {{ margin-top:10px; }}
         .tree-root {{ list-style:none; padding-left:0; }}
         .tree-root li {{ margin:4px 0; list-style:none; }}
@@ -413,6 +455,8 @@ pub fn generate_index_html(config: &Config) -> String {
         body.night-mode .stats-item .num {{
             color: #7ab0e0;
         }}
+        body.night-mode .toolbar input, body.night-mode .toolbar select {{ background:rgba(40,40,40,0.9); color:#eee; border-color:rgba(122,176,224,0.35); }}
+        body.night-mode .breadcrumb, body.night-mode .breadcrumb button {{ color:#7ab0e0; }}
         body.night-mode .header-left h1 {{
             background: linear-gradient(135deg, #7ab0e0, #a78bfa);
             -webkit-background-clip: text;
@@ -518,6 +562,23 @@ pub fn generate_index_html(config: &Config) -> String {
             <span class="stats-item" id="fileCount">📄 文件 <span class="num">0</span></span>
             <span class="stats-item" id="dirCount">📁 目录 <span class="num">0</span></span>
         </div>
+        <div class="toolbar" role="search">
+            <input id="fileSearch" type="search" placeholder="搜索当前目录" aria-label="搜索当前目录">
+            <select id="typeFilter" aria-label="筛选文件类型">
+                <option value="all">全部类型</option>
+                <option value="image">图片</option>
+                <option value="video">视频</option>
+                <option value="audio">音频</option>
+                <option value="document">文档</option>
+                <option value="archive">压缩包</option>
+            </select>
+            <select id="sortSelect" aria-label="排序方式">
+                <option value="name">按名称</option>
+                <option value="size">按大小</option>
+                <option value="time">按修改时间</option>
+            </select>
+        </div>
+        <nav id="breadcrumb" class="breadcrumb" aria-label="目录路径"></nav>
         <div class="file-tree">
             <div id="treeRoot" class="tree-root"></div>
         </div>
@@ -532,6 +593,7 @@ pub fn generate_index_html(config: &Config) -> String {
     <script>
         // ========== 从后端传入配置 ==========
         const showFileSize = {};
+        const defaultSort = "{}";
 
         // ========== 夜间模式 ==========
         (function() {{
@@ -562,6 +624,9 @@ pub fn generate_index_html(config: &Config) -> String {
         let loadingPaths = new Set();
         let totalFiles = 0;
         let totalDirs = 0;
+        let directoryData = new Map();
+        let pathParents = new Map([["", null]]);
+        let activePath = "";
 
         // ========== 图片预览器 ==========
         let imageViewerData = [];
@@ -753,6 +818,10 @@ pub fn generate_index_html(config: &Config) -> String {
         }}
 
         document.addEventListener('DOMContentLoaded', function() {{
+            document.getElementById('sortSelect').value = defaultSort;
+            document.getElementById('fileSearch').addEventListener('input', applyDirectoryView);
+            document.getElementById('typeFilter').addEventListener('change', applyDirectoryView);
+            document.getElementById('sortSelect').addEventListener('change', applyDirectoryView);
             loadDirectory('');
             window.addEventListener('scroll', function() {{
                 var btn = document.getElementById('backToTop');
@@ -768,9 +837,76 @@ pub fn generate_index_html(config: &Config) -> String {
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
-        async function loadDirectory(path, containerId = null) {{
+        function renderBreadcrumb(path) {{
+            var nav = document.getElementById('breadcrumb');
+            nav.replaceChildren();
+            var root = document.createElement('button');
+            root.textContent = '全部文件';
+            root.onclick = function() {{ openDirectory(''); }};
+            nav.appendChild(root);
+            var parts = path ? path.split('/') : [];
+            var current = '';
+            parts.forEach(function(part, index) {{
+                var divider = document.createElement('span');
+                divider.textContent = '/';
+                nav.appendChild(divider);
+                current = current ? current + '/' + part : part;
+                var target = current;
+                var crumb = document.createElement('button');
+                crumb.textContent = part;
+                crumb.onclick = function() {{ openDirectory(target); }};
+                if (index === parts.length - 1) crumb.setAttribute('aria-current', 'page');
+                nav.appendChild(crumb);
+            }});
+        }}
+
+        function openDirectory(path) {{
+            activePath = path;
+            renderBreadcrumb(path);
+            var root = document.getElementById('treeRoot');
+            root.replaceChildren();
+            loadDirectory(path, null, true);
+        }}
+
+        function matchesType(node, filter) {{
+            if (node.is_dir || filter === 'all') return true;
+            var ext = (node.name.split('.').pop() || '').toLowerCase();
+            var groups = {{
+                image: ['jpg','jpeg','png','gif','bmp','webp','svg','ico'],
+                video: ['mp4','avi','mov','mkv','webm'],
+                audio: ['mp3','wav','flac','ogg','m4a'],
+                document: ['pdf','doc','docx','xls','xlsx','ppt','pptx','txt','md','rtf'],
+                archive: ['zip','rar','7z','tar','gz','bz2','xz']
+            }};
+            return (groups[filter] || []).indexOf(ext) !== -1;
+        }}
+
+        function applyDirectoryView() {{
+            var query = document.getElementById('fileSearch').value.trim().toLocaleLowerCase();
+            var filter = document.getElementById('typeFilter').value;
+            var sort = document.getElementById('sortSelect').value;
+            var list = document.querySelector('#treeRoot > ul');
+            if (!list) return;
+            var items = Array.prototype.slice.call(list.children);
+            items.sort(function(a, b) {{
+                var ad = a.dataset.dir === '1';
+                var bd = b.dataset.dir === '1';
+                if (ad !== bd) return ad ? -1 : 1;
+                if (sort === 'size') return Number(b.dataset.size) - Number(a.dataset.size) || a.dataset.name.localeCompare(b.dataset.name);
+                if (sort === 'time') return Number(b.dataset.time) - Number(a.dataset.time) || a.dataset.name.localeCompare(b.dataset.name);
+                return a.dataset.name.localeCompare(b.dataset.name, undefined, {{ sensitivity: 'base', numeric: true }});
+            }});
+            items.forEach(function(li) {{
+                var matches = li.dataset.name.toLocaleLowerCase().includes(query) && matchesType({{ name: li.dataset.name, is_dir: li.dataset.dir === '1' }}, filter);
+                li.style.display = matches ? '' : 'none';
+                list.appendChild(li);
+            }});
+        }}
+
+        async function loadDirectory(path, containerId = null, force = false) {{
             var container = containerId ? document.getElementById(containerId) : document.getElementById('treeRoot');
-            if (loadedPaths.has(path) || loadingPaths.has(path)) return;
+            if (!container) return;
+            if (!force && loadedPaths.has(path) || loadingPaths.has(path)) return;
             loadingPaths.add(path);
 
             var loader = document.createElement('div');
@@ -790,7 +926,8 @@ pub fn generate_index_html(config: &Config) -> String {
                 loader.remove();
                 loadingPaths.delete(path);
                 loadedPaths.add(path);
-
+                directoryData.set(path, data);
+                if (containerId === null) activePath = path;
                 var ul = document.createElement('ul');
                 ul.className = 'children';
                 ul.id = 'children-' + (++nwebUid);
@@ -800,6 +937,10 @@ pub fn generate_index_html(config: &Config) -> String {
 
                 data.forEach(function(node) {{
                     var li = document.createElement('li');
+                    li.dataset.name = node.name;
+                    li.dataset.dir = node.is_dir ? '1' : '0';
+                    li.dataset.size = String(node.size || 0);
+                    li.dataset.time = String(node.modified_time || 0);
 
                     if (node.is_dir) {{
                         dirsInDir++;
@@ -837,9 +978,10 @@ pub fn generate_index_html(config: &Config) -> String {
                                 childrenContainer.style.display = 'block';
                                 toggleSpan.className = 'toggle-icon open';
                                 toggleSpan.innerHTML = '▼';
-                                var childId = childrenContainer.id;
-                                if (childrenContainer.dataset.loaded === undefined) {{
-                                    childrenContainer.dataset.loaded = 1; loadDirectory(node.path, childrenContainer.id);
+                                        if (childrenContainer.dataset.loaded === undefined) {{
+                                    childrenContainer.dataset.loaded = 1;
+                                    pathParents.set(node.path, path);
+                                    loadDirectory(node.path, childrenContainer.id);
                                 }}
                             }}
                         }};
@@ -895,12 +1037,16 @@ pub fn generate_index_html(config: &Config) -> String {
                     var emptyLi = document.createElement('li');
                     emptyLi.style.color = '#999';
                     emptyLi.style.padding = '10px';
-                    emptyLi.textContent = '雜鱼 这目录是空的';
+                    emptyLi.textContent = '这个目录是空的';
                     ul.appendChild(emptyLi);
                 }}
 
-                container.innerHTML = '';
+                container.replaceChildren();
                 container.appendChild(ul);
+                if (containerId === null) {{
+                    renderBreadcrumb(path);
+                    applyDirectoryView();
+                }}
 
                 totalFiles += filesInDir;
                 totalDirs += dirsInDir;
@@ -908,7 +1054,7 @@ pub fn generate_index_html(config: &Config) -> String {
                 document.getElementById('dirCount').querySelector('.num').textContent = totalDirs;
 
             }} catch (error) {{
-                loader.innerHTML = '<p style=\"color:#ef4444;\">❌ 加载失败: ' + error.message + '</p>';
+                loader.textContent = '❌ 加载失败: ' + error.message;
                 loadingPaths.delete(path);
                 console.error('加载失败:', error);
             }}
@@ -974,7 +1120,17 @@ pub fn generate_index_html(config: &Config) -> String {
 </body>
 </html>"#,
         // 参数对应
-        title, bg_api, opacity, blur, blur, opacity, blur, title, admin_btn_style, description,
-        show_file_size_js
+        title,
+        bg_api,
+        opacity,
+        blur,
+        blur,
+        opacity,
+        blur,
+        title,
+        admin_btn_style,
+        description,
+        show_file_size_js,
+        config.default_sort
     )
 }

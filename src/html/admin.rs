@@ -1,17 +1,33 @@
 use crate::config::Config;
-use crate::html::home::html_escape;
+use crate::html::home::{html_escape, safe_background_url};
 
 /// 管理页面 HTML
 pub fn generate_admin_html(config: &Config) -> String {
     let title = html_escape(&config.title);
-    let bg_api = &config.background_api;
+    let bg_api = safe_background_url(&config.background_api);
 
-    let name_selected = if config.default_sort == "name" { "selected" } else { "" };
-    let size_selected = if config.default_sort == "size" { "selected" } else { "" };
-    let time_selected = if config.default_sort == "time" { "selected" } else { "" };
+    let name_selected = if config.default_sort == "name" {
+        "selected"
+    } else {
+        ""
+    };
+    let size_selected = if config.default_sort == "size" {
+        "selected"
+    } else {
+        ""
+    };
+    let time_selected = if config.default_sort == "time" {
+        "selected"
+    } else {
+        ""
+    };
     let show_size_checked = if config.show_file_size { "checked" } else { "" };
     let show_admin_checked = if config.show_admin_btn { "checked" } else { "" };
-    let clear_log_checked = if config.clear_log_on_start { "checked" } else { "" };
+    let clear_log_checked = if config.clear_log_on_start {
+        "checked"
+    } else {
+        ""
+    };
 
     format!(
         r#"<!DOCTYPE html>
@@ -474,17 +490,23 @@ pub fn generate_admin_html(config: &Config) -> String {
 </body>
 </html>"#,
         // 参数对应
-        title, bg_api,
-        config.title, config.description, config.background_api,
-        config.opacity, config.blur,
+        title,
+        bg_api,
+        html_escape(&config.title),
+        html_escape(&config.description),
+        html_escape(&config.background_api),
+        config.opacity.clamp(0.0, 1.0),
+        html_escape(&crate::html::home::safe_css_length(&config.blur)),
         if config.show_hidden { "checked" } else { "" },
-        config.index_file,
-        name_selected, size_selected, time_selected,
+        html_escape(&config.index_file),
+        name_selected,
+        size_selected,
+        time_selected,
         show_size_checked,
         show_admin_checked,
         clear_log_checked,
-        config.home_dir,
-        config.admin_user,
-        config.admin_pass
+        html_escape(&config.home_dir),
+        html_escape(&config.admin_user),
+        html_escape(&config.admin_pass)
     )
 }

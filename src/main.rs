@@ -3,17 +3,20 @@ mod handler;
 mod html;
 mod utils;
 
-use warp::Filter;
-use std::net::IpAddr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use crate::handler::{
+    admin_delete, admin_files_list, admin_mkdir, admin_read_file, admin_rename, admin_upload,
+    admin_write_file,
+};
 use config::{ensure_config, load_config};
-use utils::expand_path;
-use std::collections::HashMap;
-use crate::handler::{admin_delete, admin_files_list, admin_mkdir, admin_upload};
 use handler::{
     exec_command, get_admin_config, get_admin_logs, get_admin_status, handle_admin_page,
     handle_request, is_valid_auth, unauthorized, update_admin_config,
 };
+use std::collections::HashMap;
+use std::net::IpAddr;
+use std::time::{SystemTime, UNIX_EPOCH};
+use utils::expand_path;
+use warp::Filter;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -31,6 +34,27 @@ fn print_help() {
     println!();
     println!("示例:");
     println!("  nweb -d /data -p 7891 -H 127.0.0.1");
+}
+
+fn same_origin_guard() -> impl Filter<Extract = ((),), Error = warp::Rejection> + Copy {
+    warp::header::optional::<String>("origin")
+        .and(warp::header::optional::<String>("host"))
+        .and_then(|origin: Option<String>, host: Option<String>| async move {
+            let allowed = match origin {
+                None => true,
+                Some(origin) => host
+                    .map(|host| {
+                        origin == format!("http://{}", host)
+                            || origin == format!("https://{}", host)
+                    })
+                    .unwrap_or(false),
+            };
+            if allowed {
+                Ok(())
+            } else {
+                Err(warp::reject::reject())
+            }
+        })
 }
 
 fn fail(msg: &str) -> ! {
@@ -153,7 +177,11 @@ async fn main() {
     if !cfg.home_dir.trim().is_empty() {
         match std::fs::canonicalize(cfg.home_dir.trim()) {
             Ok(p) if p.is_dir() => println!("📂 home_dir 生效: {}", p.display()),
-            _ => println!("⚠️  home_dir 无效: {}，将使用 {}", cfg.home_dir, root_dir.display()),
+            _ => println!(
+                "⚠️  home_dir 无效: {}，将使用 {}",
+                cfg.home_dir,
+                root_dir.display()
+            ),
         }
     }
 
@@ -191,11 +219,12 @@ async fn main() {
 
     let admin_config_post = warp::path!("@admin" / "config")
         .and(warp::post())
+        .and(same_origin_guard())
         .and(warp::header::optional::<String>("authorization"))
         .and(warp::body::json())
         .and_then({
             let root = root_dir.clone();
-            move |auth: Option<String>, payload: serde_json::Value| {
+            move |_: (), auth: Option<String>, payload: serde_json::Value| {
                 let root = root.clone();
                 async move {
                     if !is_valid_auth(&root, auth, true).await {
@@ -240,11 +269,12 @@ async fn main() {
 
     let admin_exec = warp::path!("@admin" / "exec")
         .and(warp::post())
+        .and(same_origin_guard())
         .and(warp::header::optional::<String>("authorization"))
         .and(warp::body::json())
         .and_then({
             let root = root_dir.clone();
-            move |auth: Option<String>, payload: serde_json::Value| {
+            move |_: (), auth: Option<String>, payload: serde_json::Value| {
                 let root = root.clone();
                 async move {
                     if !is_valid_auth(&root, auth, true).await {
@@ -277,15 +307,75 @@ async fn main() {
             }
         });
 
+    let admin_read_file_route = warp::path!("@admin" / "files" / "read")
+        .and(warp::get())
+        .and(warp::header::optional::<String>("authorization"))
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then({
+            let root = root_dir.clone();
+            move |auth: Option<String>, query: HashMap<String, String>| {
+                let root = root.clone();
+                async move {
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
+                    }
+                    admin_read_file(root, query).await
+                }
+            }
+        });
+
+    let admin_write_file_route = warp::path!("@admin" / "files" / "write")
+        .and(warp::post())
+        .and(same_origin_guard())
+        .and(warp::header::optional::<String>("authorization"))
+        .and(warp::query::<HashMap<String, String>>())
+        .and(warp::body::content_length_limit(2 * 1024 * 1024 + 4096))
+        .and(warp::body::json())
+        .and_then({
+            let root = root_dir.clone();
+            move |_: (),
+                  auth: Option<String>,
+                  query: HashMap<String, String>,
+                  body: serde_json::Value| {
+                let root = root.clone();
+                async move {
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
+                    }
+                    admin_write_file(root, query, body).await
+                }
+            }
+        });
+
+    let admin_rename_route = warp::path!("@admin" / "files" / "rename")
+        .and(warp::post())
+        .and(same_origin_guard())
+        .and(warp::header::optional::<String>("authorization"))
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then({
+            let root = root_dir.clone();
+            move |_: (), auth: Option<String>, query: HashMap<String, String>| {
+                let root = root.clone();
+                async move {
+                    if !is_valid_auth(&root, auth, true).await {
+                        return Ok(unauthorized());
+                    }
+                    admin_rename(root, query).await
+                }
+            }
+        });
+
     let admin_upload_route = warp::path!("@admin" / "upload")
         .and(warp::post())
+        .and(same_origin_guard())
         .and(warp::header::optional::<String>("authorization"))
         .and(warp::query::<HashMap<String, String>>())
         .and(warp::body::content_length_limit(268435456))
         .and(warp::body::bytes())
         .and_then({
             let root = root_dir.clone();
-            move |auth: Option<String>,
+            move |_: (),
+                  auth: Option<String>,
                   query: HashMap<String, String>,
                   data: warp::hyper::body::Bytes| {
                 let root = root.clone();
@@ -300,11 +390,12 @@ async fn main() {
 
     let admin_mkdir_route = warp::path!("@admin" / "files" / "mkdir")
         .and(warp::post())
+        .and(same_origin_guard())
         .and(warp::header::optional::<String>("authorization"))
         .and(warp::query::<HashMap<String, String>>())
         .and_then({
             let root = root_dir.clone();
-            move |auth: Option<String>, query: HashMap<String, String>| {
+            move |_: (), auth: Option<String>, query: HashMap<String, String>| {
                 let root = root.clone();
                 async move {
                     if !is_valid_auth(&root, auth, true).await {
@@ -317,11 +408,12 @@ async fn main() {
 
     let admin_delete_route = warp::path!("@admin" / "files" / "delete")
         .and(warp::post())
+        .and(same_origin_guard())
         .and(warp::header::optional::<String>("authorization"))
         .and(warp::query::<HashMap<String, String>>())
         .and_then({
             let root = root_dir.clone();
-            move |auth: Option<String>, query: HashMap<String, String>| {
+            move |_: (), auth: Option<String>, query: HashMap<String, String>| {
                 let root = root.clone();
                 async move {
                     if !is_valid_auth(&root, auth, true).await {
@@ -351,6 +443,9 @@ async fn main() {
         .or(admin_status)
         .or(admin_exec)
         .or(admin_files_route)
+        .or(admin_read_file_route)
+        .or(admin_write_file_route)
+        .or(admin_rename_route)
         .or(admin_upload_route)
         .or(admin_mkdir_route)
         .or(admin_delete_route)
